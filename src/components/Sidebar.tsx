@@ -10,7 +10,8 @@ import {
   BookOpen,
   LogOut,
   Menu,
-  X
+  X,
+  Brain
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -34,6 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
 
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, text: 'Dashboard' },
+    { to: '/dashboard/ai-hub', icon: Brain, text: 'AI Hub', isNew: true },
     { to: '/dashboard/attendance', icon: Calendar, text: 'Attendance' },
     { to: '/dashboard/assignments', icon: FileText, text: 'Assignments' },
     { to: '/dashboard/gpa-predictor', icon: TrendingUp, text: 'GPA Predictor' },
@@ -75,7 +77,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+                  `flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors relative ${
                     isActive
                       ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-r-2 border-blue-700'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
@@ -85,6 +87,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
               >
                 <item.icon className="w-5 h-5 mr-3" />
                 {item.text}
+                {item.isNew && (
+                  <span className="ml-auto px-2 py-1 text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full">
+                    NEW
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>

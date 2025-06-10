@@ -10,9 +10,11 @@ import Dashboard from './pages/Dashboard';
 import Attendance from './pages/Attendance';
 import Assignments from './pages/Assignments';
 import GPAPredictor from './pages/GPAPredictor';
+import EnhancedGPAPredictor from './pages/EnhancedGPAPredictor';
 import Events from './pages/Events';
 import Messages from './pages/Messages';
 import LearnCenter from './pages/LearnCenter';
+import AIHub from './pages/AIHub';
 
 function App() {
   return (
@@ -32,14 +34,15 @@ function App() {
                 }
               >
                 <Route index element={<Dashboard />} />
+                <Route path="ai-hub" element={<AIHub />} />
                 <Route path="attendance" element={<Attendance />} />
                 <Route path="assignments" element={<Assignments />} />
-                <Route path="gpa-predictor" element={<GPAPredictor />} />
+                <Route path="gpa-predictor" element={<EnhancedGPAPredictor />} />
                 <Route path="events" element={<Events />} />
                 <Route path="messages" element={<Messages />} />
                 <Route path="learncenter" element={<LearnCenter />} />
               </Route>
-              <Route path="/" element={<Navigate to="/dashboard\" replace />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </div>
         </Router>
