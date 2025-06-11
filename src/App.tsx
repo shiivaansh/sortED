@@ -23,6 +23,12 @@ import AIHub from './pages/AIHub';
 // Teacher pages
 import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import TeacherAttendance from './pages/teacher/TeacherAttendance';
+import TeacherAssignments from './pages/teacher/TeacherAssignments';
+import TeacherMarks from './pages/teacher/TeacherMarks';
+import TeacherReports from './pages/teacher/TeacherReports';
+import TeacherMessages from './pages/teacher/TeacherMessages';
+import TeacherClasses from './pages/teacher/TeacherClasses';
+import TeacherStudents from './pages/teacher/TeacherStudents';
 
 function App() {
   return (
@@ -66,12 +72,17 @@ function App() {
                 }
               >
                 <Route index element={<TeacherDashboard />} />
+                <Route path="classes" element={<TeacherClasses />} />
+                <Route path="students" element={<TeacherStudents />} />
                 <Route path="attendance" element={<TeacherAttendance />} />
-                {/* Add more teacher routes here */}
+                <Route path="assignments" element={<TeacherAssignments />} />
+                <Route path="marks" element={<TeacherMarks />} />
+                <Route path="reports" element={<TeacherReports />} />
+                <Route path="messages" element={<TeacherMessages />} />
               </Route>
 
               {/* Default redirect */}
-              <Route path="/" element={<Navigate to="/dashboard\" replace />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </div>
         </Router>
