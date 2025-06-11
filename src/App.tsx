@@ -44,7 +44,7 @@ function App() {
                 <Route path="messages" element={<Messages />} />
                 <Route path="learncenter" element={<LearnCenter />} />
               </Route>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/" element={<Navigate to="/dashboard\" replace />} />
             </Routes>
           </div>
         </Router>
