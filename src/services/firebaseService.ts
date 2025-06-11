@@ -15,7 +15,8 @@ import {
   orderBy, 
   onSnapshot,
   serverTimestamp,
-  writeBatch
+  writeBatch,
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import type { Community, Event, Student } from '../types';
@@ -32,30 +33,216 @@ class FirebaseService {
       const userDoc = await getDoc(userRef);
       
       if (!userDoc.exists()) {
-        await setDoc(userRef, {
+        const profileData = {
           ...userData,
+          studentId: userData.studentId || `STU-${Date.now()}`,
           joinedCommunities: [],
           eventRegistrations: [],
+          assignmentSubmissions: [],
+          attendanceRecords: [],
+          gradeRecords: [],
+          messageGroups: [],
+          learningProgress: {},
           createdAt: serverTimestamp(),
           lastActive: serverTimestamp(),
           profile: {
             bio: '',
             interests: [],
-            academicYear: '',
-            department: ''
+            academicYear: 'Year 12',
+            department: 'Science',
+            avatar: ''
           },
           stats: {
             communitiesJoined: 0,
             eventsAttended: 0,
             eventsCreated: 0,
-            certificatesEarned: 0
+            certificatesEarned: 0,
+            assignmentsSubmitted: 0,
+            attendancePercentage: 0,
+            currentGPA: 0
+          },
+          preferences: {
+            notifications: true,
+            emailUpdates: true,
+            theme: 'light'
           }
-        });
+        };
         
-        console.log('User profile initialized in Firestore');
+        await setDoc(userRef, profileData);
+        console.log('✅ User profile initialized in Firestore:', userId);
+        
+        // Also create initial attendance records
+        await this.initializeAttendanceRecords(userId);
+        
+        // Create initial assignment submissions
+        await this.initializeAssignmentSubmissions(userId);
+        
+        // Create initial grade records
+        await this.initializeGradeRecords(userId);
+        
+        return profileData;
+      } else {
+        console.log('✅ User profile already exists:', userId);
+        return userDoc.data();
       }
     } catch (error) {
-      console.error('Error initializing user profile:', error);
+      console.error('❌ Error initializing user profile:', error);
+      throw error;
+    }
+  }
+
+  // Initialize attendance records for a user
+  async initializeAttendanceRecords(userId: string) {
+    try {
+      const attendanceRef = collection(db, 'attendance');
+      const batch = writeBatch(db);
+      
+      // Create attendance records for the past 30 days
+      const today = new Date();
+      const attendanceData = [];
+      
+      for (let i = 0; i < 30; i++) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        
+        // Skip weekends
+        if (date.getDay() === 0 || date.getDay() === 6) continue;
+        
+        const status = Math.random() > 0.1 ? 'present' : Math.random() > 0.5 ? 'absent' : 'late';
+        const dateStr = date.toISOString().split('T')[0];
+        
+        const recordRef = doc(attendanceRef);
+        batch.set(recordRef, {
+          userId,
+          date: dateStr,
+          status,
+          subject: 'General',
+          markedAt: Timestamp.fromDate(date),
+          markedBy: 'system'
+        });
+        
+        attendanceData.push({ date: dateStr, status });
+      }
+      
+      await batch.commit();
+      
+      // Update user's attendance records
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        attendanceRecords: attendanceData,
+        'stats.attendancePercentage': Math.round((attendanceData.filter(a => a.status === 'present').length / attendanceData.length) * 100)
+      });
+      
+      console.log('✅ Attendance records initialized for user:', userId);
+    } catch (error) {
+      console.error('❌ Error initializing attendance records:', error);
+    }
+  }
+
+  // Initialize assignment submissions
+  async initializeAssignmentSubmissions(userId: string) {
+    try {
+      const assignmentsRef = collection(db, 'assignments');
+      const batch = writeBatch(db);
+      
+      const subjects = ['Mathematics', 'Physics', 'Chemistry', 'English', 'History', 'Computer Science'];
+      const assignments = [];
+      
+      subjects.forEach((subject, index) => {
+        const assignmentRef = doc(assignmentsRef);
+        const assignmentData = {
+          subject,
+          title: `${subject} Assignment #${index + 1}`,
+          description: `Complete the ${subject.toLowerCase()} assignment covering recent topics.`,
+          dueDate: new Date(Date.now() + (index + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          maxMarks: 100,
+          difficulty: ['easy', 'medium', 'hard'][Math.floor(Math.random() * 3)],
+          createdAt: serverTimestamp(),
+          createdBy: 'system',
+          submissions: [],
+          stats: {
+            totalSubmissions: 0,
+            averageGrade: 0
+          }
+        };
+        
+        batch.set(assignmentRef, assignmentData);
+        assignments.push({ id: assignmentRef.id, ...assignmentData });
+        
+        // Create submission for this user
+        const submissionRef = doc(collection(db, 'assignments', assignmentRef.id, 'submissions'));
+        const submissionData = {
+          userId,
+          submittedAt: serverTimestamp(),
+          content: `Submitted assignment for ${subject}`,
+          grade: Math.floor(Math.random() * 30) + 70, // 70-100
+          feedback: 'Good work! Keep it up.',
+          status: Math.random() > 0.3 ? 'submitted' : 'pending'
+        };
+        
+        batch.set(submissionRef, submissionData);
+      });
+      
+      await batch.commit();
+      
+      // Update user's assignment submissions
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        assignmentSubmissions: assignments.map(a => a.id),
+        'stats.assignmentsSubmitted': assignments.length
+      });
+      
+      console.log('✅ Assignment submissions initialized for user:', userId);
+    } catch (error) {
+      console.error('❌ Error initializing assignment submissions:', error);
+    }
+  }
+
+  // Initialize grade records
+  async initializeGradeRecords(userId: string) {
+    try {
+      const gradesRef = collection(db, 'grades');
+      const batch = writeBatch(db);
+      
+      const subjects = [
+        { name: 'Mathematics', marks: 85, maxMarks: 100 },
+        { name: 'Physics', marks: 78, maxMarks: 100 },
+        { name: 'Chemistry', marks: 92, maxMarks: 100 },
+        { name: 'English', marks: 88, maxMarks: 100 },
+        { name: 'Computer Science', marks: 95, maxMarks: 100 },
+        { name: 'History', marks: 82, maxMarks: 100 }
+      ];
+      
+      subjects.forEach((subject) => {
+        const gradeRef = doc(gradesRef);
+        batch.set(gradeRef, {
+          userId,
+          subject: subject.name,
+          marks: subject.marks,
+          maxMarks: subject.maxMarks,
+          semester: 'Semester 1',
+          examType: 'Final',
+          recordedAt: serverTimestamp(),
+          recordedBy: 'system'
+        });
+      });
+      
+      await batch.commit();
+      
+      // Calculate and update GPA
+      const totalPercentage = subjects.reduce((sum, subject) => sum + (subject.marks / subject.maxMarks) * 100, 0);
+      const averagePercentage = totalPercentage / subjects.length;
+      const gpa = averagePercentage >= 90 ? 10 : Math.floor(averagePercentage / 10) + 1;
+      
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        gradeRecords: subjects,
+        'stats.currentGPA': gpa
+      });
+      
+      console.log('✅ Grade records initialized for user:', userId);
+    } catch (error) {
+      console.error('❌ Error initializing grade records:', error);
     }
   }
 
@@ -84,10 +271,10 @@ class FirebaseService {
       // Add community to user's joined communities
       await this.joinCommunity(communityRef.id, creatorId);
       
-      console.log('Community created with ID:', communityRef.id);
+      console.log('✅ Community created with ID:', communityRef.id);
       return communityRef.id;
     } catch (error) {
-      console.error('Error creating community:', error);
+      console.error('❌ Error creating community:', error);
       throw error;
     }
   }
@@ -124,9 +311,9 @@ class FirebaseService {
       });
 
       await batch.commit();
-      console.log('User joined community successfully');
+      console.log('✅ User joined community successfully:', { communityId, userId });
     } catch (error) {
-      console.error('Error joining community:', error);
+      console.error('❌ Error joining community:', error);
       throw error;
     }
   }
@@ -161,9 +348,9 @@ class FirebaseService {
       });
 
       await batch.commit();
-      console.log('User left community successfully');
+      console.log('✅ User left community successfully:', { communityId, userId });
     } catch (error) {
-      console.error('Error leaving community:', error);
+      console.error('❌ Error leaving community:', error);
       throw error;
     }
   }
@@ -206,10 +393,10 @@ class FirebaseService {
         lastActive: serverTimestamp()
       });
 
-      console.log('Event created with ID:', eventRef.id);
+      console.log('✅ Event created with ID:', eventRef.id);
       return eventRef.id;
     } catch (error) {
-      console.error('Error creating event:', error);
+      console.error('❌ Error creating event:', error);
       throw error;
     }
   }
@@ -246,9 +433,9 @@ class FirebaseService {
       });
 
       await batch.commit();
-      console.log('User registered for event successfully');
+      console.log('✅ User registered for event successfully:', { eventId, userId });
     } catch (error) {
-      console.error('Error registering for event:', error);
+      console.error('❌ Error registering for event:', error);
       throw error;
     }
   }
@@ -282,69 +469,172 @@ class FirebaseService {
       });
 
       await batch.commit();
-      console.log('User unregistered from event successfully');
+      console.log('✅ User unregistered from event successfully:', { eventId, userId });
     } catch (error) {
-      console.error('Error unregistering from event:', error);
+      console.error('❌ Error unregistering from event:', error);
       throw error;
     }
   }
 
-  // Add post to community - builds community content
-  async addCommunityPost(communityId: string, userId: string, content: string) {
+  // Submit assignment - builds assignment submission records
+  async submitAssignment(assignmentId: string, userId: string, submissionData: {
+    content: string;
+    attachments?: string[];
+  }) {
     try {
-      const postRef = await addDoc(collection(db, 'communities', communityId, 'posts'), {
-        content,
-        authorId: userId,
-        createdAt: serverTimestamp(),
-        likes: [],
-        likeCount: 0,
-        comments: [],
-        commentCount: 0,
-        isActive: true
+      const batch = writeBatch(db);
+      
+      // Create submission record
+      const submissionRef = doc(db, 'assignments', assignmentId, 'submissions', userId);
+      batch.set(submissionRef, {
+        userId,
+        ...submissionData,
+        submittedAt: serverTimestamp(),
+        status: 'submitted',
+        grade: null,
+        feedback: null
       });
 
-      // Update community stats
-      const communityRef = doc(db, 'communities', communityId);
-      await updateDoc(communityRef, {
-        'stats.totalPosts': increment(1),
+      // Update assignment stats
+      const assignmentRef = doc(db, 'assignments', assignmentId);
+      batch.update(assignmentRef, {
+        'stats.totalSubmissions': increment(1),
         lastActivity: serverTimestamp()
       });
 
-      console.log('Community post added with ID:', postRef.id);
-      return postRef.id;
+      // Update user stats
+      const userRef = doc(db, 'users', userId);
+      batch.update(userRef, {
+        assignmentSubmissions: arrayUnion(assignmentId),
+        'stats.assignmentsSubmitted': increment(1),
+        lastActive: serverTimestamp()
+      });
+
+      await batch.commit();
+      console.log('✅ Assignment submitted successfully:', { assignmentId, userId });
     } catch (error) {
-      console.error('Error adding community post:', error);
+      console.error('❌ Error submitting assignment:', error);
       throw error;
     }
   }
 
-  // Mark event attendance - builds attendance records
-  async markEventAttendance(eventId: string, userId: string, attended: boolean) {
+  // Mark attendance - builds attendance records
+  async markAttendance(userId: string, date: string, status: 'present' | 'absent' | 'late', subject?: string) {
     try {
-      const registrationRef = doc(db, 'events', eventId, 'registrations', userId);
-      await updateDoc(registrationRef, {
-        attendanceStatus: attended ? 'attended' : 'absent',
-        attendanceMarkedAt: serverTimestamp()
+      const attendanceRef = await addDoc(collection(db, 'attendance'), {
+        userId,
+        date,
+        status,
+        subject: subject || 'General',
+        markedAt: serverTimestamp(),
+        markedBy: 'system'
       });
 
-      if (attended) {
-        // Update event stats
-        const eventRef = doc(db, 'events', eventId);
-        await updateDoc(eventRef, {
-          'stats.totalAttendees': increment(1)
-        });
-
-        // Update user stats
-        const userRef = doc(db, 'users', userId);
+      // Update user's attendance records
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const attendanceRecords = userData.attendanceRecords || [];
+        const updatedRecords = [...attendanceRecords, { date, status }];
+        
+        // Calculate attendance percentage
+        const presentDays = updatedRecords.filter(r => r.status === 'present').length;
+        const attendancePercentage = Math.round((presentDays / updatedRecords.length) * 100);
+        
         await updateDoc(userRef, {
-          'stats.eventsAttended': increment(1),
+          attendanceRecords: updatedRecords,
+          'stats.attendancePercentage': attendancePercentage,
           lastActive: serverTimestamp()
         });
       }
 
-      console.log('Event attendance marked successfully');
+      console.log('✅ Attendance marked successfully:', { userId, date, status });
+      return attendanceRef.id;
     } catch (error) {
-      console.error('Error marking event attendance:', error);
+      console.error('❌ Error marking attendance:', error);
+      throw error;
+    }
+  }
+
+  // Update grades - builds grade records
+  async updateGrade(userId: string, subject: string, marks: number, maxMarks: number) {
+    try {
+      const gradeRef = await addDoc(collection(db, 'grades'), {
+        userId,
+        subject,
+        marks,
+        maxMarks,
+        semester: 'Current',
+        examType: 'Assessment',
+        recordedAt: serverTimestamp(),
+        recordedBy: 'system'
+      });
+
+      // Update user's grade records and GPA
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const gradeRecords = userData.gradeRecords || [];
+        
+        // Update or add grade record
+        const existingIndex = gradeRecords.findIndex((g: any) => g.name === subject);
+        if (existingIndex >= 0) {
+          gradeRecords[existingIndex] = { name: subject, marks, maxMarks };
+        } else {
+          gradeRecords.push({ name: subject, marks, maxMarks });
+        }
+        
+        // Calculate GPA
+        const totalPercentage = gradeRecords.reduce((sum: number, grade: any) => 
+          sum + (grade.marks / grade.maxMarks) * 100, 0);
+        const averagePercentage = totalPercentage / gradeRecords.length;
+        const gpa = averagePercentage >= 90 ? 10 : Math.floor(averagePercentage / 10) + 1;
+        
+        await updateDoc(userRef, {
+          gradeRecords,
+          'stats.currentGPA': gpa,
+          lastActive: serverTimestamp()
+        });
+      }
+
+      console.log('✅ Grade updated successfully:', { userId, subject, marks, maxMarks });
+      return gradeRef.id;
+    } catch (error) {
+      console.error('❌ Error updating grade:', error);
+      throw error;
+    }
+  }
+
+  // Add learning resource interaction
+  async trackLearningProgress(userId: string, resourceId: string, progressData: {
+    viewedAt?: Date;
+    completionStatus?: 'started' | 'in_progress' | 'completed';
+    timeSpent?: number;
+  }) {
+    try {
+      const progressRef = doc(db, 'learningProgress', `${userId}_${resourceId}`);
+      await setDoc(progressRef, {
+        userId,
+        resourceId,
+        ...progressData,
+        viewedAt: progressData.viewedAt || serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      }, { merge: true });
+
+      // Update user's learning progress
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        [`learningProgress.${resourceId}`]: progressData,
+        lastActive: serverTimestamp()
+      });
+
+      console.log('✅ Learning progress tracked:', { userId, resourceId });
+    } catch (error) {
+      console.error('❌ Error tracking learning progress:', error);
       throw error;
     }
   }
@@ -379,60 +669,10 @@ class FirebaseService {
         lastActive: serverTimestamp()
       });
 
-      console.log('Certificate issued with ID:', certificateRef.id);
+      console.log('✅ Certificate issued with ID:', certificateRef.id);
       return certificateRef.id;
     } catch (error) {
-      console.error('Error issuing certificate:', error);
-      throw error;
-    }
-  }
-
-  // Get user's complete profile with all relationships
-  async getUserProfile(userId: string) {
-    try {
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      if (!userDoc.exists()) {
-        throw new Error('User profile not found');
-      }
-
-      const userData = userDoc.data();
-      
-      // Get user's communities
-      const communities = await Promise.all(
-        (userData.joinedCommunities || []).map(async (communityId: string) => {
-          const communityDoc = await getDoc(doc(db, 'communities', communityId));
-          return communityDoc.exists() ? { id: communityDoc.id, ...communityDoc.data() } : null;
-        })
-      );
-
-      // Get user's events
-      const events = await Promise.all(
-        (userData.eventRegistrations || []).map(async (eventId: string) => {
-          const eventDoc = await getDoc(doc(db, 'events', eventId));
-          return eventDoc.exists() ? { id: eventDoc.id, ...eventDoc.data() } : null;
-        })
-      );
-
-      // Get user's certificates
-      const certificatesQuery = query(
-        collection(db, 'certificates'),
-        where('userId', '==', userId),
-        orderBy('issuedAt', 'desc')
-      );
-      const certificatesSnapshot = await getDocs(certificatesQuery);
-      const certificates = certificatesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      return {
-        ...userData,
-        communities: communities.filter(Boolean),
-        events: events.filter(Boolean),
-        certificates
-      };
-    } catch (error) {
-      console.error('Error getting user profile:', error);
+      console.error('❌ Error issuing certificate:', error);
       throw error;
     }
   }
@@ -455,7 +695,8 @@ class FirebaseService {
           const communitiesSnapshot = await getDocs(communitiesQuery);
           const communities = communitiesSnapshot.docs.map(doc => ({
             id: doc.id,
-            ...doc.data()
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate() || new Date()
           })) as Community[];
           
           callback(communities);
@@ -494,66 +735,90 @@ class FirebaseService {
     });
   }
 
-  // Analytics and insights
-  async getCommunityAnalytics(communityId: string) {
+  // Get comprehensive user data for debugging
+  async getUserCompleteData(userId: string) {
     try {
-      const communityDoc = await getDoc(doc(db, 'communities', communityId));
-      if (!communityDoc.exists()) {
-        throw new Error('Community not found');
-      }
-
-      // Get member growth over time
-      const membershipsQuery = query(
-        collection(db, 'communities', communityId, 'memberships'),
-        orderBy('joinedAt', 'asc')
-      );
-      const membershipsSnapshot = await getDocs(membershipsQuery);
+      console.log('🔍 Fetching complete user data for:', userId);
       
-      // Get community events
-      const eventsQuery = query(
-        collection(db, 'events'),
-        where('communityId', '==', communityId),
-        orderBy('createdAt', 'desc')
+      // Get user profile
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      
+      // Get attendance records
+      const attendanceQuery = query(
+        collection(db, 'attendance'),
+        where('userId', '==', userId),
+        orderBy('date', 'desc')
       );
-      const eventsSnapshot = await getDocs(eventsQuery);
-
-      return {
-        community: { id: communityDoc.id, ...communityDoc.data() },
-        membershipHistory: membershipsSnapshot.docs.map(doc => doc.data()),
-        events: eventsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-        totalMembers: membershipsSnapshot.size,
-        totalEvents: eventsSnapshot.size
+      const attendanceSnapshot = await getDocs(attendanceQuery);
+      const attendanceRecords = attendanceSnapshot.docs.map(doc => doc.data());
+      
+      // Get assignment submissions
+      const assignmentsQuery = query(collection(db, 'assignments'));
+      const assignmentsSnapshot = await getDocs(assignmentsQuery);
+      const assignments = [];
+      
+      for (const assignmentDoc of assignmentsSnapshot.docs) {
+        const submissionDoc = await getDoc(doc(db, 'assignments', assignmentDoc.id, 'submissions', userId));
+        if (submissionDoc.exists()) {
+          assignments.push({
+            assignment: { id: assignmentDoc.id, ...assignmentDoc.data() },
+            submission: submissionDoc.data()
+          });
+        }
+      }
+      
+      // Get grade records
+      const gradesQuery = query(
+        collection(db, 'grades'),
+        where('userId', '==', userId)
+      );
+      const gradesSnapshot = await getDocs(gradesQuery);
+      const grades = gradesSnapshot.docs.map(doc => doc.data());
+      
+      // Get certificates
+      const certificatesQuery = query(
+        collection(db, 'certificates'),
+        where('userId', '==', userId)
+      );
+      const certificatesSnapshot = await getDocs(certificatesQuery);
+      const certificates = certificatesSnapshot.docs.map(doc => doc.data());
+      
+      const completeData = {
+        profile: userData,
+        attendance: attendanceRecords,
+        assignments,
+        grades,
+        certificates,
+        summary: {
+          totalAttendanceRecords: attendanceRecords.length,
+          totalAssignments: assignments.length,
+          totalGrades: grades.length,
+          totalCertificates: certificates.length
+        }
       };
+      
+      console.log('📊 Complete user data:', completeData);
+      return completeData;
     } catch (error) {
-      console.error('Error getting community analytics:', error);
+      console.error('❌ Error fetching complete user data:', error);
       throw error;
     }
   }
 
-  // Bulk operations for admin/setup
-  async seedInitialData() {
+  // Force refresh all user data
+  async refreshUserData(userId: string) {
     try {
-      // This would be called once to set up initial communities and events
-      const batch = writeBatch(db);
+      console.log('🔄 Refreshing all user data for:', userId);
       
-      // Add some initial communities
-      const techClubRef = doc(collection(db, 'communities'));
-      batch.set(techClubRef, {
-        name: 'Technology Club',
-        description: 'Explore the latest in technology, coding, and innovation.',
-        tags: ['Technology', 'Programming', 'Innovation'],
-        memberCount: 0,
-        members: [],
-        createdAt: serverTimestamp(),
-        isActive: true
-      });
-
-      // Add more initial data as needed...
+      // Re-initialize all user data
+      await this.initializeAttendanceRecords(userId);
+      await this.initializeAssignmentSubmissions(userId);
+      await this.initializeGradeRecords(userId);
       
-      await batch.commit();
-      console.log('Initial data seeded successfully');
+      console.log('✅ User data refreshed successfully');
     } catch (error) {
-      console.error('Error seeding initial data:', error);
+      console.error('❌ Error refreshing user data:', error);
       throw error;
     }
   }

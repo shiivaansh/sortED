@@ -1,13 +1,90 @@
-import React, { useState } from 'react';
-import { Calendar as CalendarIcon, TrendingUp, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calendar as CalendarIcon, TrendingUp, Clock, CheckCircle, XCircle, AlertCircle, Plus, RefreshCw } from 'lucide-react';
+import { useFirebaseAuth } from '../hooks/useFirebaseAuth';
+import { firebaseService } from '../services/firebaseService';
 import type { AttendanceRecord } from '../types';
 
 const Attendance: React.FC = () => {
+  const { currentUser } = useFirebaseAuth();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Mock attendance data
-  const attendanceData: AttendanceRecord[] = [
+  useEffect(() => {
+    if (currentUser) {
+      loadAttendanceData();
+    }
+  }, [currentUser, selectedMonth, selectedYear]);
+
+  const loadAttendanceData = async () => {
+    if (!currentUser) return;
+    
+    try {
+      const userData = await firebaseService.getUserCompleteData(currentUser.uid);
+      if (userData.attendance && userData.attendance.length > 0) {
+        // Convert Firebase data to the expected format
+        const formattedData = userData.attendance.map((record: any) => ({
+          date: record.date,
+          status: record.status as 'present' | 'absent' | 'late'
+        }));
+        setAttendanceData(formattedData);
+      } else {
+        // Use mock data if no Firebase data
+        setAttendanceData(mockAttendanceData);
+      }
+    } catch (error) {
+      console.error('Error loading attendance data:', error);
+      setAttendanceData(mockAttendanceData);
+    }
+  };
+
+  const markAttendance = async (date: string, status: 'present' | 'absent' | 'late') => {
+    if (!currentUser) return;
+    
+    setIsLoading(true);
+    try {
+      await firebaseService.markAttendance(currentUser.uid, date, status);
+      
+      // Update local state
+      setAttendanceData(prev => {
+        const existing = prev.find(record => record.date === date);
+        if (existing) {
+          return prev.map(record => 
+            record.date === date ? { ...record, status } : record
+          );
+        } else {
+          return [...prev, { date, status }];
+        }
+      });
+      
+      console.log('✅ Attendance marked successfully');
+    } catch (error) {
+      console.error('❌ Error marking attendance:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const refreshAttendanceData = async () => {
+    if (!currentUser) return;
+    
+    setIsLoading(true);
+    try {
+      // Re-initialize attendance records
+      await firebaseService.refreshUserData(currentUser.uid);
+      await loadAttendanceData();
+      alert('✅ Attendance data refreshed! Check your Firebase console.');
+    } catch (error) {
+      console.error('Error refreshing attendance data:', error);
+      alert('❌ Error refreshing data. Check console for details.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Mock attendance data for fallback
+  const mockAttendanceData: AttendanceRecord[] = [
     { date: '2024-01-15', status: 'present' },
     { date: '2024-01-16', status: 'present' },
     { date: '2024-01-17', status: 'absent' },
@@ -24,7 +101,7 @@ const Attendance: React.FC = () => {
   const presentDays = attendanceData.filter(record => record.status === 'present').length;
   const absentDays = attendanceData.filter(record => record.status === 'absent').length;
   const lateDays = attendanceData.filter(record => record.status === 'late').length;
-  const attendancePercentage = Math.round((presentDays / totalDays) * 100);
+  const attendancePercentage = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
 
   const months = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -53,21 +130,34 @@ const Attendance: React.FC = () => {
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const record = attendanceData.find(r => r.date === dateStr);
+      const isToday = dateStr === new Date().toISOString().split('T')[0];
       
       days.push(
         <div
           key={day}
-          className={`h-10 flex items-center justify-center rounded-lg text-sm font-medium cursor-pointer transition-colors ${
+          className={`h-10 flex items-center justify-center rounded-lg text-sm font-medium cursor-pointer transition-colors relative ${
             record
               ? record.status === 'present'
                 ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
                 : record.status === 'absent'
                 ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
                 : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300'
+              : isToday
+              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/30'
               : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
           }`}
+          onClick={() => {
+            if (isToday && !record) {
+              const status = window.confirm('Mark attendance as Present?') ? 'present' : 
+                           window.confirm('Mark as Absent?') ? 'absent' : 'late';
+              markAttendance(dateStr, status);
+            }
+          }}
         >
           {day}
+          {isToday && !record && (
+            <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full"></div>
+          )}
         </div>
       );
     }
@@ -109,8 +199,21 @@ const Attendance: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Attendance</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Attendance</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Track your attendance records • {attendanceData.length} records in database
+          </p>
+        </div>
         <div className="flex items-center space-x-4">
+          <button
+            onClick={refreshAttendanceData}
+            disabled={isLoading}
+            className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh Data
+          </button>
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
@@ -150,11 +253,24 @@ const Attendance: React.FC = () => {
         {/* Calendar */}
         <div className="lg:col-span-2">
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center mb-6">
-              <CalendarIcon className="w-6 h-6 text-gray-600 dark:text-gray-400 mr-3" />
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {months[selectedMonth]} {selectedYear}
-              </h3>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center">
+                <CalendarIcon className="w-6 h-6 text-gray-600 dark:text-gray-400 mr-3" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {months[selectedMonth]} {selectedYear}
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  const today = new Date().toISOString().split('T')[0];
+                  markAttendance(today, 'present');
+                }}
+                disabled={isLoading}
+                className="flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors text-sm"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Mark Today
+              </button>
             </div>
 
             <div className="grid grid-cols-7 gap-2 mb-4">
@@ -181,6 +297,10 @@ const Attendance: React.FC = () => {
               <div className="flex items-center">
                 <div className="w-4 h-4 bg-yellow-100 dark:bg-yellow-900/20 rounded mr-2"></div>
                 <span className="text-sm text-gray-600 dark:text-gray-400">Late</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-4 h-4 bg-blue-100 dark:bg-blue-900/20 rounded mr-2"></div>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Today</span>
               </div>
             </div>
           </div>
@@ -241,6 +361,13 @@ const Attendance: React.FC = () => {
                 <span className="text-sm font-medium text-yellow-600 dark:text-yellow-400">{lateDays}</span>
               </div>
             </div>
+          </div>
+
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+            <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">💡 Database Info</h4>
+            <p className="text-xs text-blue-700 dark:text-blue-300">
+              Your attendance is automatically saved to Firebase. Click "Refresh Data" to rebuild records or check your Firebase console.
+            </p>
           </div>
         </div>
       </div>

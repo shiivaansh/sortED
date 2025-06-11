@@ -1,13 +1,95 @@
-import React, { useState } from 'react';
-import { FileText, Calendar, Clock, CheckCircle, AlertTriangle, Filter, Plus } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { FileText, Calendar, Clock, CheckCircle, AlertTriangle, Filter, Plus, RefreshCw, Upload } from 'lucide-react';
+import { useFirebaseAuth } from '../hooks/useFirebaseAuth';
+import { firebaseService } from '../services/firebaseService';
 import type { Assignment } from '../types';
 
 const Assignments: React.FC = () => {
+  const { currentUser } = useFirebaseAuth();
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'submitted' | 'overdue'>('all');
   const [sortBy, setSortBy] = useState<'dueDate' | 'subject' | 'status'>('dueDate');
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [userSubmissions, setUserSubmissions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Mock assignments data
-  const assignments: Assignment[] = [
+  useEffect(() => {
+    if (currentUser) {
+      loadAssignments();
+    }
+  }, [currentUser]);
+
+  const loadAssignments = async () => {
+    if (!currentUser) return;
+    
+    try {
+      const userData = await firebaseService.getUserCompleteData(currentUser.uid);
+      if (userData.assignments && userData.assignments.length > 0) {
+        // Convert Firebase data to the expected format
+        const formattedAssignments = userData.assignments.map((item: any) => ({
+          id: item.assignment.id,
+          subject: item.assignment.subject,
+          title: item.assignment.title,
+          dueDate: item.assignment.dueDate,
+          description: item.assignment.description,
+          status: item.submission?.status === 'submitted' ? 'submitted' : 
+                  new Date(item.assignment.dueDate) < new Date() ? 'overdue' : 'pending'
+        }));
+        setAssignments(formattedAssignments);
+        setUserSubmissions(userData.assignments.map((item: any) => item.submission));
+      } else {
+        // Use mock data if no Firebase data
+        setAssignments(mockAssignments);
+      }
+    } catch (error) {
+      console.error('Error loading assignments:', error);
+      setAssignments(mockAssignments);
+    }
+  };
+
+  const submitAssignment = async (assignmentId: string) => {
+    if (!currentUser) return;
+    
+    setIsLoading(true);
+    try {
+      await firebaseService.submitAssignment(assignmentId, currentUser.uid, {
+        content: `Assignment submission for ${assignmentId}`,
+        attachments: []
+      });
+      
+      // Update local state
+      setAssignments(prev => prev.map(assignment => 
+        assignment.id === assignmentId 
+          ? { ...assignment, status: 'submitted' as const }
+          : assignment
+      ));
+      
+      alert('✅ Assignment submitted successfully!');
+    } catch (error) {
+      console.error('❌ Error submitting assignment:', error);
+      alert('❌ Error submitting assignment. Check console for details.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const refreshAssignments = async () => {
+    if (!currentUser) return;
+    
+    setIsLoading(true);
+    try {
+      await firebaseService.refreshUserData(currentUser.uid);
+      await loadAssignments();
+      alert('✅ Assignment data refreshed! Check your Firebase console.');
+    } catch (error) {
+      console.error('Error refreshing assignments:', error);
+      alert('❌ Error refreshing data. Check console for details.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Mock assignments data for fallback
+  const mockAssignments: Assignment[] = [
     {
       id: '1',
       subject: 'Mathematics',
@@ -150,11 +232,26 @@ const Assignments: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Assignments</h1>
-        <button className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-          <Plus className="w-4 h-4 mr-2" />
-          New Assignment
-        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Assignments</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Manage your assignments • {assignments.length} assignments in database
+          </p>
+        </div>
+        <div className="flex space-x-2">
+          <button
+            onClick={refreshAssignments}
+            disabled={isLoading}
+            className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh Data
+          </button>
+          <button className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+            <Plus className="w-4 h-4 mr-2" />
+            New Assignment
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -248,7 +345,12 @@ const Assignments: React.FC = () => {
 
               <div className="flex flex-col space-y-2 ml-4">
                 {assignment.status === 'pending' && (
-                  <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm">
+                  <button
+                    onClick={() => submitAssignment(assignment.id)}
+                    disabled={isLoading}
+                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors text-sm"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
                     Submit
                   </button>
                 )}
@@ -273,6 +375,15 @@ const Assignments: React.FC = () => {
           </p>
         </div>
       )}
+
+      {/* Database Info */}
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+        <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">💡 Database Info</h4>
+        <p className="text-xs text-blue-700 dark:text-blue-300">
+          Assignment submissions are automatically saved to Firebase with grades and feedback. 
+          Click "Refresh Data" to rebuild records or check your Firebase console under 'assignments' collection.
+        </p>
+      </div>
     </div>
   );
 };
