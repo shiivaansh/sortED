@@ -501,45 +501,70 @@ class TeacherService {
     });
   }
 
+  // Check if faculty collection exists and seed if needed
+  async checkAndSeedFacultyData() {
+    try {
+      const facultySnapshot = await getDocs(collection(db, 'faculty'));
+      
+      if (facultySnapshot.empty) {
+        console.log('🌱 No faculty data found, seeding initial teacher accounts...');
+        await this.seedTeacherData();
+        return true;
+      } else {
+        console.log('✅ Faculty collection exists with', facultySnapshot.size, 'teachers');
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error checking faculty data:', error);
+      return false;
+    }
+  }
+
   // Seed initial teacher data
   async seedTeacherData() {
     try {
       const teachers = [
         {
-          id: 'teacher1',
+          id: 'teacher-demo-1',
           name: 'Dr. Sarah Johnson',
-          email: 'sarah.johnson@school.edu',
+          email: 'teacher@demo.com',
           employeeId: 'EMP001',
           department: 'Mathematics',
-          subjects: ['Mathematics', 'Statistics']
+          subjects: ['Mathematics', 'Statistics'],
+          experience: 8,
+          qualifications: ['PhD Mathematics', 'M.Sc Statistics']
         },
         {
-          id: 'teacher2',
+          id: 'teacher-demo-2',
           name: 'Prof. Michael Chen',
-          email: 'michael.chen@school.edu',
+          email: 'michael.chen@demo.com',
           employeeId: 'EMP002',
           department: 'Science',
-          subjects: ['Physics', 'Chemistry']
+          subjects: ['Physics', 'Chemistry'],
+          experience: 12,
+          qualifications: ['PhD Physics', 'M.Sc Chemistry']
         },
         {
-          id: 'teacher3',
+          id: 'teacher-demo-3',
           name: 'Ms. Emily Rodriguez',
-          email: 'emily.rodriguez@school.edu',
+          email: 'emily.rodriguez@demo.com',
           employeeId: 'EMP003',
           department: 'Languages',
-          subjects: ['English', 'Literature']
+          subjects: ['English', 'Literature'],
+          experience: 6,
+          qualifications: ['MA English Literature', 'B.Ed']
         }
       ];
 
       const classes = [
         {
-          id: 'class-12a',
-          name: 'Class 12-A',
+          id: 'class-12a-math',
+          name: 'Class 12-A Mathematics',
           subject: 'Mathematics',
           grade: '12',
           section: 'A',
-          teacherId: 'teacher1',
-          students: ['student1', 'student2', 'student3'],
+          teacherId: 'teacher-demo-1',
+          students: [], // Will be populated when students join
           schedule: [
             { day: 'Monday', startTime: '09:00', endTime: '10:00' },
             { day: 'Wednesday', startTime: '10:00', endTime: '11:00' },
@@ -548,37 +573,109 @@ class TeacherService {
           isActive: true
         },
         {
-          id: 'class-12b',
-          name: 'Class 12-B',
+          id: 'class-12b-physics',
+          name: 'Class 12-B Physics',
           subject: 'Physics',
           grade: '12',
           section: 'B',
-          teacherId: 'teacher2',
-          students: ['student4', 'student5', 'student6'],
+          teacherId: 'teacher-demo-2',
+          students: [],
           schedule: [
             { day: 'Tuesday', startTime: '09:00', endTime: '10:00' },
             { day: 'Thursday', startTime: '10:00', endTime: '11:00' }
           ],
           isActive: true
+        },
+        {
+          id: 'class-11a-english',
+          name: 'Class 11-A English',
+          subject: 'English',
+          grade: '11',
+          section: 'A',
+          teacherId: 'teacher-demo-3',
+          students: [],
+          schedule: [
+            { day: 'Monday', startTime: '14:00', endTime: '15:00' },
+            { day: 'Friday', startTime: '14:00', endTime: '15:00' }
+          ],
+          isActive: true
         }
       ];
 
+      const batch = writeBatch(db);
+
       // Create teacher profiles
       for (const teacher of teachers) {
-        await this.initializeTeacherProfile(teacher.id, teacher);
+        const teacherRef = doc(db, 'faculty', teacher.id);
+        batch.set(teacherRef, {
+          name: teacher.name,
+          email: teacher.email,
+          employeeId: teacher.employeeId,
+          department: teacher.department,
+          subjects: teacher.subjects,
+          classes: classes.filter(c => c.teacherId === teacher.id).map(c => c.id),
+          qualifications: teacher.qualifications,
+          experience: teacher.experience,
+          joinedAt: serverTimestamp(),
+          isActive: true,
+          permissions: {
+            canCreateAssignments: true,
+            canGradeAssignments: true,
+            canMarkAttendance: true,
+            canViewReports: true,
+            canManageClasses: true
+          }
+        });
       }
 
       // Create classes
       for (const classData of classes) {
-        await setDoc(doc(db, 'classes', classData.id), {
+        const classRef = doc(db, 'classes', classData.id);
+        batch.set(classRef, {
           ...classData,
           createdAt: serverTimestamp()
         });
       }
 
-      console.log('✅ Teacher data seeded successfully');
+      await batch.commit();
+      console.log('✅ Teacher and class data seeded successfully');
+      
+      // Log demo credentials
+      console.log('🔑 Demo Teacher Credentials:');
+      console.log('Email: teacher@demo.com');
+      console.log('Password: Use any password (you\'ll need to create this account in Firebase Auth)');
+      
+      return teachers;
     } catch (error) {
       console.error('❌ Error seeding teacher data:', error);
+      throw error;
+    }
+  }
+
+  // Create demo teacher account for testing
+  async createDemoTeacherAccount() {
+    try {
+      // This will create the faculty record for the demo teacher
+      const demoTeacher = {
+        name: 'Demo Teacher',
+        email: 'teacher@demo.com',
+        employeeId: 'DEMO001',
+        department: 'General',
+        subjects: ['Mathematics', 'Science']
+      };
+
+      // Use a fixed ID for the demo teacher
+      const demoTeacherId = 'demo-teacher-001';
+      
+      await this.initializeTeacherProfile(demoTeacherId, demoTeacher);
+      
+      console.log('✅ Demo teacher account created with ID:', demoTeacherId);
+      console.log('🔑 Use this email to test: teacher@demo.com');
+      
+      return demoTeacherId;
+    } catch (error) {
+      console.error('❌ Error creating demo teacher account:', error);
+      throw error;
     }
   }
 }
