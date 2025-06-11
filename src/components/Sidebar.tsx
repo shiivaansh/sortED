@@ -11,7 +11,9 @@ import {
   LogOut,
   Menu,
   X,
-  Brain
+  Brain,
+  Users,
+  Trophy
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -36,10 +38,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, text: 'Dashboard' },
     { to: '/dashboard/ai-hub', icon: Brain, text: 'AI Hub', isNew: true },
+    { to: '/dashboard/communities', icon: Users, text: 'Communities', isNew: true },
+    { to: '/dashboard/events', icon: Trophy, text: 'Events', isNew: true },
     { to: '/dashboard/attendance', icon: Calendar, text: 'Attendance' },
     { to: '/dashboard/assignments', icon: FileText, text: 'Assignments' },
     { to: '/dashboard/gpa-predictor', icon: TrendingUp, text: 'GPA Predictor' },
-    { to: '/dashboard/events', icon: CalendarDays, text: 'Events' },
     { to: '/dashboard/messages', icon: MessageSquare, text: 'Messages' },
     { to: '/dashboard/learncenter', icon: BookOpen, text: 'LearnCenter' },
   ];

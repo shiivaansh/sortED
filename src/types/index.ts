@@ -3,6 +3,8 @@ export interface Student {
   name: string;
   email: string;
   studentId: string;
+  joinedCommunities?: string[];
+  eventRegistrations?: string[];
 }
 
 export interface Assignment {
@@ -18,9 +20,52 @@ export interface Event {
   id: string;
   name: string;
   date: string;
+  endDate?: string;
+  type: 'Intra-school' | 'Inter-school';
+  hostedBy: string;
+  communityId?: string;
   description: string;
+  fullDescription?: string;
   location?: string;
-  isRegistered?: boolean;
+  maxParticipants?: number;
+  currentParticipants: number;
+  registrations: string[];
+  rules?: string[];
+  schedule?: Array<{
+    time: string;
+    activity: string;
+  }>;
+  rounds?: Array<{
+    name: string;
+    description: string;
+    date: string;
+  }>;
+  results?: Array<{
+    position: number;
+    participant: string;
+    score?: number;
+  }>;
+  status: 'upcoming' | 'ongoing' | 'completed';
+  registrationDeadline?: string;
+  tags: string[];
+}
+
+export interface Community {
+  id: string;
+  name: string;
+  description: string;
+  logo?: string;
+  tags: string[];
+  memberCount: number;
+  members: string[];
+  createdAt: Date;
+  upcomingEvents?: Event[];
+  recentPosts?: Array<{
+    id: string;
+    content: string;
+    author: string;
+    timestamp: Date;
+  }>;
 }
 
 export interface AttendanceRecord {
