@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Tag, Plus, Search, Filter, X, Calendar, MapPin, Clock } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { firebaseService } from '../services/firebaseService';
+import { useFirebaseAuth } from '../hooks/useFirebaseAuth';
 
 interface Community {
   id: string;
@@ -31,7 +33,7 @@ interface Event {
 }
 
 const Communities: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser } = useFirebaseAuth(); // This will auto-initialize user profile
   const [communities, setCommunities] = useState<Community[]>([]);
   const [filteredCommunities, setFilteredCommunities] = useState<Community[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -41,7 +43,7 @@ const Communities: React.FC = () => {
   const [userCommunities, setUserCommunities] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Mock data for development
+  // Mock data for development - this will be replaced by real Firestore data
   const mockCommunities: Community[] = [
     {
       id: 'tech-club',
@@ -142,22 +144,45 @@ const Communities: React.FC = () => {
 
   const loadCommunities = async () => {
     try {
-      // In a real app, this would fetch from Firestore
-      // const communitiesRef = collection(db, 'communities');
-      // const snapshot = await getDocs(query(communitiesRef, orderBy('memberCount', 'desc')));
-      // const communitiesData = snapshot.docs.map(doc => ({
-      //   id: doc.id,
-      //   ...doc.data(),
-      //   createdAt: doc.data().createdAt?.toDate()
-      // })) as Community[];
+      // Try to load from Firestore first
+      const communitiesRef = collection(db, 'communities');
+      const snapshot = await getDocs(query(communitiesRef, orderBy('memberCount', 'desc')));
       
-      // For now, using mock data
-      setCommunities(mockCommunities);
+      if (snapshot.empty) {
+        // If no communities exist, seed with mock data and create them in Firestore
+        console.log('No communities found, seeding with initial data...');
+        await seedCommunitiesInFirestore();
+        setCommunities(mockCommunities);
+      } else {
+        const communitiesData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate() || new Date()
+        })) as Community[];
+        setCommunities(communitiesData);
+      }
     } catch (error) {
       console.error('Error loading communities:', error);
+      // Fallback to mock data
       setCommunities(mockCommunities);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const seedCommunitiesInFirestore = async () => {
+    try {
+      for (const community of mockCommunities) {
+        await firebaseService.createCommunity({
+          name: community.name,
+          description: community.description,
+          tags: community.tags,
+          createdAt: community.createdAt
+        }, 'system'); // Use system as creator for initial seed
+      }
+      console.log('Communities seeded in Firestore');
+    } catch (error) {
+      console.error('Error seeding communities:', error);
     }
   };
 
@@ -165,15 +190,20 @@ const Communities: React.FC = () => {
     if (!currentUser) return;
     
     try {
-      // In a real app, this would fetch from user document
-      // const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-      // const userData = userDoc.data();
-      // setUserCommunities(userData?.joinedCommunities || []);
-      
-      // Mock user communities
-      setUserCommunities(['tech-club', 'music-ensemble']);
+      // Set up real-time listener for user's communities
+      const unsubscribe = firebaseService.subscribeToUserCommunities(
+        currentUser.uid,
+        (userCommunitiesData) => {
+          setUserCommunities(userCommunitiesData.map(c => c.id));
+        }
+      );
+
+      // Return cleanup function
+      return unsubscribe;
     } catch (error) {
       console.error('Error loading user communities:', error);
+      // Fallback to mock data
+      setUserCommunities(['tech-club', 'music-ensemble']);
     }
   };
 
@@ -208,27 +238,18 @@ const Communities: React.FC = () => {
     try {
       const isJoined = userCommunities.includes(communityId);
       
-      // Update user's joined communities
-      // const userRef = doc(db, 'users', currentUser.uid);
-      // await updateDoc(userRef, {
-      //   joinedCommunities: isJoined 
-      //     ? arrayRemove(communityId)
-      //     : arrayUnion(communityId)
-      // });
-
-      // Update community member count and members list
-      // const communityRef = doc(db, 'communities', communityId);
-      // await updateDoc(communityRef, {
-      //   members: isJoined 
-      //     ? arrayRemove(currentUser.uid)
-      //     : arrayUnion(currentUser.uid),
-      //   memberCount: isJoined 
-      //     ? increment(-1)
-      //     : increment(1)
-      // });
-
-      // Update local state
       if (isJoined) {
+        await firebaseService.leaveCommunity(communityId, currentUser.uid);
+      } else {
+        await firebaseService.joinCommunity(communityId, currentUser.uid);
+      }
+
+      // The real-time listener will update the UI automatically
+      console.log(`${isJoined ? 'Left' : 'Joined'} community successfully`);
+    } catch (error) {
+      console.error('Error updating community membership:', error);
+      // Fallback to local state update for development
+      if (userCommunities.includes(communityId)) {
         setUserCommunities(prev => prev.filter(id => id !== communityId));
         setCommunities(prev => prev.map(community => 
           community.id === communityId 
@@ -243,8 +264,6 @@ const Communities: React.FC = () => {
             : community
         ));
       }
-    } catch (error) {
-      console.error('Error updating community membership:', error);
     }
   };
 

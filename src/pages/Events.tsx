@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, MapPin, Users, Clock, Filter, Search, Plus, Trophy, Award, X, Download } from 'lucide-react';
-import { collection, getDocs, doc, setDoc, deleteDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { firebaseService } from '../services/firebaseService';
+import { useFirebaseAuth } from '../hooks/useFirebaseAuth';
 
 interface Event {
   id: string;
@@ -39,7 +41,7 @@ interface Event {
 }
 
 const Events: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser } = useFirebaseAuth(); // This will auto-initialize user profile
   const [events, setEvents] = useState<Event[]>([]);
   const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -190,21 +192,57 @@ const Events: React.FC = () => {
 
   const loadEvents = async () => {
     try {
-      // In a real app, this would fetch from Firestore
-      // const eventsRef = collection(db, 'events');
-      // const snapshot = await getDocs(query(eventsRef, orderBy('date', 'asc')));
-      // const eventsData = snapshot.docs.map(doc => ({
-      //   id: doc.id,
-      //   ...doc.data()
-      // })) as Event[];
+      // Try to load from Firestore first
+      const eventsRef = collection(db, 'events');
+      const snapshot = await getDocs(query(eventsRef, orderBy('date', 'asc')));
       
-      // For now, using mock data
-      setEvents(mockEvents);
+      if (snapshot.empty) {
+        // If no events exist, seed with mock data and create them in Firestore
+        console.log('No events found, seeding with initial data...');
+        await seedEventsInFirestore();
+        setEvents(mockEvents);
+      } else {
+        const eventsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Event[];
+        setEvents(eventsData);
+      }
     } catch (error) {
       console.error('Error loading events:', error);
+      // Fallback to mock data
       setEvents(mockEvents);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const seedEventsInFirestore = async () => {
+    try {
+      for (const event of mockEvents) {
+        await firebaseService.createEvent({
+          name: event.name,
+          date: event.date,
+          endDate: event.endDate,
+          type: event.type,
+          hostedBy: event.hostedBy,
+          communityId: event.communityId,
+          description: event.description,
+          fullDescription: event.fullDescription,
+          location: event.location,
+          maxParticipants: event.maxParticipants,
+          rules: event.rules,
+          schedule: event.schedule,
+          rounds: event.rounds,
+          results: event.results,
+          status: event.status,
+          registrationDeadline: event.registrationDeadline,
+          tags: event.tags
+        }, 'system'); // Use system as creator for initial seed
+      }
+      console.log('Events seeded in Firestore');
+    } catch (error) {
+      console.error('Error seeding events:', error);
     }
   };
 
@@ -212,16 +250,20 @@ const Events: React.FC = () => {
     if (!currentUser) return;
     
     try {
-      // In a real app, this would fetch user's registrations
-      // const registrationsRef = collection(db, 'users', currentUser.uid, 'eventRegistrations');
-      // const snapshot = await getDocs(registrationsRef);
-      // const registrations = snapshot.docs.map(doc => doc.id);
-      // setUserRegistrations(registrations);
-      
-      // Mock user registrations
-      setUserRegistrations(['science-fair-2024', 'math-olympiad-2023']);
+      // Set up real-time listener for user's events
+      const unsubscribe = firebaseService.subscribeToUserEvents(
+        currentUser.uid,
+        (userEventsData) => {
+          setUserRegistrations(userEventsData.map(e => e.id));
+        }
+      );
+
+      // Return cleanup function
+      return unsubscribe;
     } catch (error) {
       console.error('Error loading user registrations:', error);
+      // Fallback to mock data
+      setUserRegistrations(['science-fair-2024', 'math-olympiad-2023']);
     }
   };
 
@@ -262,10 +304,17 @@ const Events: React.FC = () => {
       const isRegistered = userRegistrations.includes(eventId);
       
       if (isRegistered) {
-        // Unregister from event
-        // await deleteDoc(doc(db, 'events', eventId, 'registrations', currentUser.uid));
-        // await deleteDoc(doc(db, 'users', currentUser.uid, 'eventRegistrations', eventId));
-        
+        await firebaseService.unregisterFromEvent(eventId, currentUser.uid);
+      } else {
+        await firebaseService.registerForEvent(eventId, currentUser.uid);
+      }
+
+      // The real-time listener will update the UI automatically
+      console.log(`${isRegistered ? 'Unregistered from' : 'Registered for'} event successfully`);
+    } catch (error) {
+      console.error('Error updating event registration:', error);
+      // Fallback to local state update for development
+      if (userRegistrations.includes(eventId)) {
         setUserRegistrations(prev => prev.filter(id => id !== eventId));
         setEvents(prev => prev.map(event => 
           event.id === eventId 
@@ -277,17 +326,6 @@ const Events: React.FC = () => {
             : event
         ));
       } else {
-        // Register for event
-        // await setDoc(doc(db, 'events', eventId, 'registrations', currentUser.uid), {
-        //   userId: currentUser.uid,
-        //   registeredAt: new Date(),
-        //   status: 'registered'
-        // });
-        // await setDoc(doc(db, 'users', currentUser.uid, 'eventRegistrations', eventId), {
-        //   eventId,
-        //   registeredAt: new Date()
-        // });
-        
         setUserRegistrations(prev => [...prev, eventId]);
         setEvents(prev => prev.map(event => 
           event.id === eventId 
@@ -299,8 +337,6 @@ const Events: React.FC = () => {
             : event
         ));
       }
-    } catch (error) {
-      console.error('Error updating event registration:', error);
     }
   };
 
@@ -321,9 +357,21 @@ const Events: React.FC = () => {
       : 'text-orange-600 bg-orange-100 dark:bg-orange-900/20 dark:text-orange-300';
   };
 
-  const generateCertificate = (event: Event) => {
-    // Placeholder for certificate generation
-    alert(`Certificate for ${event.name} would be generated here!`);
+  const generateCertificate = async (event: Event) => {
+    if (!currentUser) return;
+    
+    try {
+      await firebaseService.issueCertificate(event.id, currentUser.uid, {
+        type: 'participation',
+        title: `Certificate of Participation - ${event.name}`,
+        description: `Awarded for participating in ${event.name}`
+      });
+      
+      alert(`Certificate for ${event.name} has been issued! Check your profile for download.`);
+    } catch (error) {
+      console.error('Error generating certificate:', error);
+      alert(`Certificate for ${event.name} would be generated here!`);
+    }
   };
 
   const uniqueHosts = Array.from(new Set(events.map(e => e.hostedBy)));
