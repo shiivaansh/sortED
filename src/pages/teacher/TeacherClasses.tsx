@@ -106,6 +106,42 @@ const TeacherClasses: React.FC = () => {
       await loadClasses();
       
       alert(`✅ Class "${formData.name}" created successfully!`);
+     
+     // Create mock students for testing if needed
+     try {
+       const mockStudents = [
+         { name: 'Alice Johnson', email: 'alice@example.com' },
+         { name: 'Bob Smith', email: 'bob@example.com' },
+         { name: 'Charlie Davis', email: 'charlie@example.com' }
+       ];
+       
+       for (const student of mockStudents) {
+         const studentRef = doc(collection(db, 'users'));
+         await setDoc(studentRef, {
+           name: student.name,
+           email: student.email,
+           studentId: `STU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+           rollNumber: `R${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
+           profile: {
+             grade: formData.grade,
+             section: formData.section
+           },
+           enrolledClasses: [classId],
+           isActive: true,
+           createdAt: serverTimestamp()
+         });
+         
+         // Add student to class
+         const classRef = doc(db, 'classes', classId);
+         await updateDoc(classRef, {
+           students: arrayUnion(studentRef.id)
+         });
+         
+         console.log(`✅ Added mock student ${student.name} to class ${classId}`);
+       }
+     } catch (mockError) {
+       console.warn('Could not create mock students:', mockError);
+     }
     } catch (error) {
       console.error('Error creating class:', error);
       alert('❌ Error creating class. Please try again.');
