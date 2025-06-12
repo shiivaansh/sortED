@@ -108,15 +108,16 @@ class FirebaseService {
     }
   }
 
-  // Auto-enroll student in classes based on their grade and section
+  // Auto-enroll student in classes based on their grade and section - ENHANCED
   async autoEnrollStudentInClasses(userId: string, grade: string, section: string) {
     try {
       console.log(`🎓 Auto-enrolling student ${userId} in Grade ${grade}-${section} classes...`);
       
-      // Find classes that match the student's grade
+      // Find classes that match the student's grade and section
       const classesQuery = query(
         collection(db, 'classes'),
         where('grade', '==', grade),
+        where('section', '==', section),
         where('isActive', '==', true)
       );
       
@@ -152,6 +153,9 @@ class FirebaseService {
         
         await batch.commit();
         console.log(`✅ Student auto-enrolled in ${enrolledClasses.length} classes`);
+        
+        // Trigger real-time update for student
+        await this.notifyStudentOfClassUpdate(userId);
       } else {
         console.log('ℹ️ Student already enrolled in available classes');
       }
@@ -160,6 +164,19 @@ class FirebaseService {
     } catch (error) {
       console.error('❌ Error auto-enrolling student:', error);
       return [];
+    }
+  }
+
+  // Notify student of class updates (triggers real-time listeners)
+  private async notifyStudentOfClassUpdate(userId: string) {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        lastClassUpdate: serverTimestamp()
+      });
+      console.log('📡 Notified student of class update');
+    } catch (error) {
+      console.warn('⚠️ Could not notify student of class update:', error);
     }
   }
 
@@ -202,7 +219,7 @@ class FirebaseService {
     });
   }
 
-  // Get students by class (real-time)
+  // Get students by class (real-time) - ENHANCED
   subscribeToClassStudents(classId: string, callback: (students: any[]) => void) {
     console.log(`🔄 Setting up real-time subscription to class ${classId} students...`);
     
@@ -265,6 +282,63 @@ class FirebaseService {
       }
     }, (error) => {
       console.error('❌ Error in class students subscription:', error);
+      callback([]);
+    });
+  }
+
+  // Real-time subscription to student's enrolled classes
+  subscribeToStudentClasses(userId: string, callback: (classes: any[]) => void) {
+    console.log(`🔄 Setting up real-time subscription to student ${userId} classes...`);
+    
+    const userRef = doc(db, 'users', userId);
+    
+    return onSnapshot(userRef, async (userDoc) => {
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const classIds = userData.enrolledClasses || [];
+        
+        console.log(`📚 Student ${userId} is enrolled in ${classIds.length} classes`);
+        
+        if (classIds.length > 0) {
+          try {
+            // Get class details in batches
+            const classes = [];
+            const batchSize = 10;
+            
+            for (let i = 0; i < classIds.length; i += batchSize) {
+              const batch = classIds.slice(i, i + batchSize);
+              const classesQuery = query(
+                collection(db, 'classes'),
+                where('__name__', 'in', batch),
+                where('isActive', '==', true)
+              );
+              
+              const classesSnapshot = await getDocs(classesQuery);
+              const batchClasses = classesSnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                createdAt: doc.data().createdAt?.toDate() || new Date()
+              }));
+              
+              classes.push(...batchClasses);
+            }
+            
+            console.log(`📚 Found ${classes.length} class details for student ${userId}`);
+            callback(classes);
+          } catch (error) {
+            console.error('❌ Error fetching class details:', error);
+            callback([]);
+          }
+        } else {
+          console.log(`📚 Student ${userId} is not enrolled in any classes yet`);
+          callback([]);
+        }
+      } else {
+        console.log(`❌ Student ${userId} not found`);
+        callback([]);
+      }
+    }, (error) => {
+      console.error('❌ Error in student classes subscription:', error);
       callback([]);
     });
   }
@@ -342,7 +416,7 @@ class FirebaseService {
     }
   }
 
-  // Mark attendance for entire class
+  // Mark attendance for entire class - ENHANCED
   async markClassAttendance(classId: string, date: string, attendanceData: Array<{
     studentId: string;
     status: 'present' | 'absent' | 'late';
@@ -364,7 +438,7 @@ class FirebaseService {
           markedBy: 'teacher'
         });
         
-        // Update student's attendance records
+        // Update student's attendance records in real-time
         try {
           const studentRef = doc(db, 'users', studentId);
           const studentDoc = await getDoc(studentRef);
@@ -372,7 +446,12 @@ class FirebaseService {
           if (studentDoc.exists()) {
             const studentData = studentDoc.data();
             const attendanceRecords = studentData.attendanceRecords || [];
-            const updatedRecords = [...attendanceRecords.filter((r: any) => r.date !== date), { date, status }];
+            
+            // Remove existing record for this date and add new one
+            const updatedRecords = [
+              ...attendanceRecords.filter((r: any) => r.date !== date),
+              { date, status }
+            ];
             
             // Calculate attendance percentage
             const presentDays = updatedRecords.filter((r: any) => r.status === 'present').length;
@@ -381,7 +460,8 @@ class FirebaseService {
             batch.update(studentRef, {
               attendanceRecords: updatedRecords,
               'stats.attendancePercentage': attendancePercentage,
-              lastActive: serverTimestamp()
+              lastActive: serverTimestamp(),
+              lastAttendanceUpdate: serverTimestamp() // Trigger real-time update
             });
           }
         } catch (studentError) {
@@ -449,7 +529,8 @@ class FirebaseService {
             batch.update(studentRef, {
               gradeRecords,
               'stats.currentGPA': gpa,
-              lastActive: serverTimestamp()
+              lastActive: serverTimestamp(),
+              lastGradeUpdate: serverTimestamp() // Trigger real-time update
             });
           }
         } catch (studentError) {

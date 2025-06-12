@@ -10,10 +10,12 @@ const Attendance: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [realTimeUpdates, setRealTimeUpdates] = useState(0);
 
   useEffect(() => {
     if (currentUser) {
       loadAttendanceData();
+      setupRealTimeAttendanceUpdates();
     }
   }, [currentUser, selectedMonth, selectedYear]);
 
@@ -37,6 +39,29 @@ const Attendance: React.FC = () => {
       console.error('Error loading attendance data:', error);
       setAttendanceData(mockAttendanceData);
     }
+  };
+
+  // Setup real-time attendance updates
+  const setupRealTimeAttendanceUpdates = () => {
+    if (!currentUser) return;
+    
+    console.log('🔄 Setting up real-time attendance updates for student...');
+    
+    // Subscribe to real-time attendance updates
+    const unsubscribe = firebaseService.subscribeToStudentAttendance(currentUser.uid, (attendanceRecords) => {
+      console.log(`📅 Real-time attendance update: ${attendanceRecords.length} records`);
+      const formattedData = attendanceRecords.map((record: any) => ({
+        date: record.date,
+        status: record.status as 'present' | 'absent' | 'late'
+      }));
+      setAttendanceData(formattedData);
+      setRealTimeUpdates(prev => prev + 1);
+    });
+
+    // Cleanup subscription on unmount
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   };
 
   const markAttendance = async (date: string, status: 'present' | 'absent' | 'late') => {
@@ -158,6 +183,9 @@ const Attendance: React.FC = () => {
           {isToday && !record && (
             <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full"></div>
           )}
+          {realTimeUpdates > 0 && record && (
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+          )}
         </div>
       );
     }
@@ -203,6 +231,11 @@ const Attendance: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Attendance</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Track your attendance records • {attendanceData.length} records in database
+            {realTimeUpdates > 0 && (
+              <span className="ml-2 text-emerald-600 dark:text-emerald-400">
+                • Live Updates: {realTimeUpdates}
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center space-x-4">
@@ -233,6 +266,23 @@ const Attendance: React.FC = () => {
           </select>
         </div>
       </div>
+
+      {/* Real-time Status */}
+      {realTimeUpdates > 0 && (
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+            <div>
+              <h4 className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+                🔴 Live Attendance Updates
+              </h4>
+              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                Your attendance updates automatically when teachers mark attendance. Updates: {realTimeUpdates}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -302,6 +352,12 @@ const Attendance: React.FC = () => {
                 <div className="w-4 h-4 bg-blue-100 dark:bg-blue-900/20 rounded mr-2"></div>
                 <span className="text-sm text-gray-600 dark:text-gray-400">Today</span>
               </div>
+              {realTimeUpdates > 0 && (
+                <div className="flex items-center">
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse mr-2"></div>
+                  <span className="text-sm text-emerald-600 dark:text-emerald-400">Live</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -364,9 +420,9 @@ const Attendance: React.FC = () => {
           </div>
 
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
-            <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">💡 Database Info</h4>
+            <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">💡 Real-time Updates</h4>
             <p className="text-xs text-blue-700 dark:text-blue-300">
-              Your attendance is automatically saved to Firebase. Click "Refresh Data" to rebuild records or check your Firebase console.
+              Your attendance updates automatically when teachers mark attendance. No need to refresh manually!
             </p>
           </div>
         </div>
