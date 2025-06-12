@@ -33,36 +33,26 @@ const Register: React.FC = () => {
     }
 
     if (formData.password !== formData.confirmPassword) {
-      return setError('Passwords do not match');
+      setError('Passwords do not match');
+      return;
     }
 
     if (formData.password.length < 6) {
-      return setError('Password must be at least 6 characters long');
+      setError('Password must be at least 6 characters long');
+      return;
     }
 
     try {
       setError('');
       setLoading(true);
+      console.log('🔐 Starting registration process...');
       
-      try {
-        await register(formData.email, formData.password, formData.name);
-        navigate('/dashboard');
-      } catch (registerError: any) {
-        console.error('Registration error:', registerError);
-        if (registerError.code === 'auth/email-already-in-use') {
-          setError('Email is already in use. Please use a different email or try logging in.');
-        } else if (registerError.code === 'auth/invalid-email') {
-          setError('Invalid email address format.');
-        } else if (registerError.code === 'auth/weak-password') {
-          setError('Password is too weak. Please use at least 6 characters.');
-        } else {
-          setError(`Failed to create account: ${registerError.message}`);
-        }
-        throw registerError;
-      }
-    } catch (error) {
-      console.error('Account creation error:', error);
-      // Error is already set in the inner catch block
+      await register(formData.email, formData.password, formData.name);
+      console.log('✅ Registration successful, navigating to dashboard');
+      navigate('/dashboard');
+    } catch (error: any) {
+      console.error('❌ Registration error:', error);
+      setError(error.message || 'Failed to create account. Please try again.');
     } finally {
       setLoading(false);
     }

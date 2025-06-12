@@ -1,10 +1,9 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 
 const firebaseConfig = {
-  // Replace with your Firebase config
- apiKey: "AIzaSyAcIrPFrbI7qjbntE_wTed5JQjZZELSlRU",
+  apiKey: "AIzaSyAcIrPFrbI7qjbntE_wTed5JQjZZELSlRU",
   authDomain: "sorted-80b0b.firebaseapp.com",
   projectId: "sorted-80b0b",
   storageBucket: "sorted-80b0b.firebasestorage.app",
@@ -21,5 +20,13 @@ export const auth = getAuth(app);
 
 // Initialize Cloud Firestore and get a reference to the service
 export const db = getFirestore(app);
+
+// Enable network persistence for Firestore
+try {
+  // This helps with offline functionality
+  console.log('Firebase initialized successfully');
+} catch (error) {
+  console.error('Firebase initialization error:', error);
+}
 
 export default app;

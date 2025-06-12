@@ -4,8 +4,8 @@ import { Mail, Lock, Eye, EyeOff, GraduationCap, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Login: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('student@demo.com');
+  const [password, setPassword] = useState('demo123');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -15,13 +15,22 @@ const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!email || !password) {
+      setError('Please fill in all fields');
+      return;
+    }
+
     try {
       setError('');
       setLoading(true);
+      console.log('🔐 Attempting login with:', email);
+      
       await login(email, password);
+      console.log('✅ Login successful, navigating to dashboard');
       navigate('/dashboard');
-    } catch (error) {
-      setError('Failed to log in. Please check your credentials.');
+    } catch (error: any) {
+      console.error('❌ Login error:', error);
+      setError(error.message || 'Failed to log in. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -42,6 +51,20 @@ const Login: React.FC = () => {
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
+            {/* Demo Credentials Info */}
+            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                🔑 Demo Credentials
+              </h4>
+              <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                <p><strong>Email:</strong> student@demo.com</p>
+                <p><strong>Password:</strong> demo123</p>
+                <p className="text-blue-600 dark:text-blue-400">
+                  These credentials are pre-filled for easy testing.
+                </p>
+              </div>
+            </div>
+
             {error && (
               <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
                 {error}
