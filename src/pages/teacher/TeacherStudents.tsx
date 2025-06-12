@@ -49,6 +49,8 @@ const TeacherStudents: React.FC = () => {
       setRealTimeUpdates(prev => prev + 1);
     } catch (error) {
       console.error('Error loading students:', error);
+     // Fallback to empty array
+     setStudents([]);
     } finally {
       setLoading(false);
     }
