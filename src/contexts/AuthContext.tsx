@@ -33,15 +33,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const register = async (email: string, password: string, name: string) => {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    await updateProfile(userCredential.user, { displayName: name });
-    
-    // Initialize user profile in Firestore
-    await firebaseService.initializeUserProfile(userCredential.user.uid, {
-      name,
-      email,
-      studentId: `STU-${Date.now()}`
-    });
+    try {
+      console.log('Starting user registration process...');
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      console.log('Firebase Auth account created successfully');
+      
+      try {
+        await updateProfile(userCredential.user, { displayName: name });
+        console.log('User profile updated with display name');
+      } catch (profileError) {
+        console.error('Error updating profile:', profileError);
+        // Continue despite profile update error
+      }
+      
+      // Initialize user profile in Firestore
+      try {
+        await firebaseService.initializeUserProfile(userCredential.user.uid, {
+          name,
+          email,
+          studentId: `STU-${Date.now()}`
+        });
+        console.log('User profile initialized in Firestore');
+      } catch (firestoreError) {
+        console.error('Error initializing Firestore profile:', firestoreError);
+        // We'll still return success since the auth account was created
+      }
+      
+      return userCredential.user;
+    } catch (error) {
+      console.error('Registration failed:', error);
+      throw error;
+    }
   };
 
   const login = (email: string, password: string) => {

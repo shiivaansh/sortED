@@ -29,9 +29,11 @@ const TeacherClasses: React.FC = () => {
   const loadClasses = async () => {
     if (!currentUser) return;
     
+    console.log('Loading classes for teacher:', currentUser.uid);
     setLoading(true);
     try {
       const teacherClasses = await teacherService.getTeacherClasses(currentUser.uid);
+     console.log('Loaded classes:', teacherClasses);
       setClasses(teacherClasses);
     } catch (error) {
       console.error('Error loading classes:', error);
@@ -62,7 +64,9 @@ const TeacherClasses: React.FC = () => {
   const viewClassDetails = async (classInfo: ClassInfo) => {
     setSelectedClass(classInfo);
     try {
+     console.log('Loading students for class:', classInfo.id);
       const classStudents = await teacherService.getClassStudents(classInfo.id);
+     console.log('Loaded students:', classStudents);
       setStudents(classStudents);
     } catch (error) {
       console.error('Error loading class students:', error);

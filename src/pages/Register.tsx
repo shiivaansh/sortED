@@ -27,6 +27,11 @@ const Register: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!formData.name || !formData.email || !formData.password) {
+      setError('All fields are required');
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       return setError('Passwords do not match');
     }
@@ -38,10 +43,26 @@ const Register: React.FC = () => {
     try {
       setError('');
       setLoading(true);
-      await register(formData.email, formData.password, formData.name);
-      navigate('/dashboard');
+      
+      try {
+        await register(formData.email, formData.password, formData.name);
+        navigate('/dashboard');
+      } catch (registerError: any) {
+        console.error('Registration error:', registerError);
+        if (registerError.code === 'auth/email-already-in-use') {
+          setError('Email is already in use. Please use a different email or try logging in.');
+        } else if (registerError.code === 'auth/invalid-email') {
+          setError('Invalid email address format.');
+        } else if (registerError.code === 'auth/weak-password') {
+          setError('Password is too weak. Please use at least 6 characters.');
+        } else {
+          setError(`Failed to create account: ${registerError.message}`);
+        }
+        throw registerError;
+      }
     } catch (error) {
-      setError('Failed to create account. Please try again.');
+      console.error('Account creation error:', error);
+      // Error is already set in the inner catch block
     } finally {
       setLoading(false);
     }
