@@ -162,6 +162,8 @@ class TeacherService {
     teacherId: string;
   }) {
     try {
+      console.log('🏫 Creating new class:', classData);
+      
       const classRef = await addDoc(collection(db, 'classes'), {
         ...classData,
         students: [], // Empty array initially
@@ -248,7 +250,20 @@ class TeacherService {
 
   // Real-time subscription to class students
   subscribeToClassStudents(classId: string, callback: (students: StudentInfo[]) => void) {
-    return firebaseService.subscribeToClassStudents(classId, callback);
+    return firebaseService.subscribeToClassStudents(classId, (students) => {
+      const formattedStudents = students.map(student => ({
+        id: student.id,
+        name: student.name,
+        email: student.email,
+        studentId: student.studentId,
+        class: `Grade ${student.profile?.grade || '12'}-${student.profile?.section || 'A'}`,
+        rollNumber: student.rollNumber || 'N/A',
+        avatar: student.avatar,
+        parentContact: student.parentContact || student.profile?.parentContact,
+        isActive: student.isActive !== false
+      }));
+      callback(formattedStudents);
+    });
   }
 
   // Create assignment for a class with real-time updates
