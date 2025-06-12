@@ -15,6 +15,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../utils/firebase';
+import { firebaseService } from './firebaseService';
 
 export interface TeacherProfile {
   id: string;
@@ -147,7 +148,7 @@ class TeacherService {
     }
   }
 
-  // Get teacher's classes
+  // Get teacher's classes with real-time student count
   async getTeacherClasses(teacherId: string): Promise<ClassInfo[]> {
     try {
       const classesQuery = query(
@@ -167,7 +168,7 @@ class TeacherService {
     }
   }
 
-  // Get students in a class
+  // Get students in a class with real-time updates
   async getClassStudents(classId: string): Promise<StudentInfo[]> {
     try {
       const classDoc = await getDoc(doc(db, 'classes', classId));
@@ -192,8 +193,8 @@ class TeacherService {
         class: classData.name,
         rollNumber: doc.data().rollNumber || `R${Math.floor(Math.random() * 100)}`,
         avatar: doc.data().avatar,
-        parentContact: doc.data().parentContact,
-        isActive: true
+        parentContact: doc.data().parentContact || doc.data().profile?.parentContact,
+        isActive: doc.data().isActive !== false
       })) as StudentInfo[];
     } catch (error) {
       console.error('❌ Error getting class students:', error);
@@ -201,56 +202,12 @@ class TeacherService {
     }
   }
 
-  // Mark attendance for a class
-  async markClassAttendance(classId: string, date: string, attendanceData: Array<{
-    studentId: string;
-    status: 'present' | 'absent' | 'late';
-  }>) {
-    try {
-      const batch = writeBatch(db);
-      
-      // Create attendance records for each student
-      attendanceData.forEach(({ studentId, status }) => {
-        const attendanceRef = doc(collection(db, 'attendance'));
-        batch.set(attendanceRef, {
-          studentId,
-          classId,
-          date,
-          status,
-          markedAt: serverTimestamp(),
-          markedBy: 'teacher'
-        });
-      });
-      
-      await batch.commit();
-      console.log('✅ Class attendance marked successfully');
-    } catch (error) {
-      console.error('❌ Error marking class attendance:', error);
-      throw error;
-    }
+  // Real-time subscription to class students
+  subscribeToClassStudents(classId: string, callback: (students: StudentInfo[]) => void) {
+    return firebaseService.subscribeToClassStudents(classId, callback);
   }
 
-  // Get attendance for a class and date
-  async getClassAttendance(classId: string, date: string) {
-    try {
-      const attendanceQuery = query(
-        collection(db, 'attendance'),
-        where('classId', '==', classId),
-        where('date', '==', date)
-      );
-      
-      const snapshot = await getDocs(attendanceQuery);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-    } catch (error) {
-      console.error('❌ Error getting class attendance:', error);
-      return [];
-    }
-  }
-
-  // Create assignment
+  // Create assignment for a class with real-time updates
   async createAssignment(assignmentData: {
     title: string;
     description: string;
@@ -262,28 +219,14 @@ class TeacherService {
     attachments?: string[];
   }, teacherId: string) {
     try {
-      const assignmentRef = await addDoc(collection(db, 'assignments'), {
-        ...assignmentData,
-        teacherId,
-        createdAt: serverTimestamp(),
-        isActive: true,
-        submissions: [],
-        stats: {
-          totalSubmissions: 0,
-          averageGrade: 0,
-          submissionRate: 0
-        }
-      });
-      
-      console.log('✅ Assignment created:', assignmentRef.id);
-      return assignmentRef.id;
+      return await firebaseService.createAssignmentForClass(assignmentData, teacherId);
     } catch (error) {
       console.error('❌ Error creating assignment:', error);
       throw error;
     }
   }
 
-  // Get teacher's assignments
+  // Get teacher's assignments with real-time updates
   async getTeacherAssignments(teacherId: string) {
     try {
       const assignmentsQuery = query(
@@ -293,43 +236,54 @@ class TeacherService {
       );
       
       const snapshot = await getDocs(assignmentsQuery);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        dueDate: doc.data().dueDate
-      }));
+      return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate(),
+          dueDate: data.dueDate,
+          stats: {
+            totalSubmissions: data.stats?.totalSubmissions || 0,
+            averageGrade: data.stats?.averageGrade || 0,
+            submissionRate: data.stats?.submissionRate || 0,
+            totalStudents: data.stats?.totalStudents || 0
+          }
+        };
+      });
     } catch (error) {
       console.error('❌ Error getting teacher assignments:', error);
       return [];
     }
   }
 
-  // Get assignment submissions
+  // Get assignment submissions with real-time updates
   async getAssignmentSubmissions(assignmentId: string) {
     try {
       const submissionsQuery = query(
         collection(db, 'assignments', assignmentId, 'submissions'),
-        orderBy('submittedAt', 'desc')
+        orderBy('createdAt', 'desc')
       );
       
       const snapshot = await getDocs(submissionsQuery);
       const submissions = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        submittedAt: doc.data().submittedAt?.toDate()
+        submittedAt: doc.data().submittedAt?.toDate(),
+        createdAt: doc.data().createdAt?.toDate()
       }));
       
       // Get student details for each submission
       const enrichedSubmissions = await Promise.all(
         submissions.map(async (submission) => {
-          const studentDoc = await getDoc(doc(db, 'users', submission.userId));
+          const studentDoc = await getDoc(doc(db, 'users', submission.studentId));
           const studentData = studentDoc.exists() ? studentDoc.data() : {};
           
           return {
             ...submission,
             studentName: studentData.name || 'Unknown Student',
-            studentId: studentData.studentId || 'N/A'
+            studentId: studentData.studentId || 'N/A',
+            rollNumber: studentData.rollNumber || 'N/A'
           };
         })
       );
@@ -339,6 +293,11 @@ class TeacherService {
       console.error('❌ Error getting assignment submissions:', error);
       return [];
     }
+  }
+
+  // Real-time subscription to assignment submissions
+  subscribeToAssignmentSubmissions(assignmentId: string, callback: (submissions: any[]) => void) {
+    return firebaseService.subscribeToAssignmentSubmissions(assignmentId, callback);
   }
 
   // Grade assignment submission
@@ -361,7 +320,46 @@ class TeacherService {
     }
   }
 
-  // Update student marks
+  // Mark attendance for entire class with real-time updates
+  async markClassAttendance(classId: string, date: string, attendanceData: Array<{
+    studentId: string;
+    status: 'present' | 'absent' | 'late';
+  }>) {
+    try {
+      await firebaseService.markClassAttendance(classId, date, attendanceData);
+      console.log(`✅ Attendance marked for ${attendanceData.length} students`);
+    } catch (error) {
+      console.error('❌ Error marking class attendance:', error);
+      throw error;
+    }
+  }
+
+  // Get attendance for a class and date with real-time updates
+  async getClassAttendance(classId: string, date: string) {
+    try {
+      const attendanceQuery = query(
+        collection(db, 'attendance'),
+        where('classId', '==', classId),
+        where('date', '==', date)
+      );
+      
+      const snapshot = await getDocs(attendanceQuery);
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('❌ Error getting class attendance:', error);
+      return [];
+    }
+  }
+
+  // Real-time subscription to class attendance
+  subscribeToClassAttendance(classId: string, date: string, callback: (attendance: any[]) => void) {
+    return firebaseService.subscribeToClassAttendance(classId, date, callback);
+  }
+
+  // Update student marks with real-time updates
   async updateStudentMarks(classId: string, subject: string, marksData: Array<{
     studentId: string;
     marks: number;
@@ -369,28 +367,60 @@ class TeacherService {
     examType: string;
   }>) {
     try {
-      const batch = writeBatch(db);
-      
-      marksData.forEach(({ studentId, marks, maxMarks, examType }) => {
-        const gradeRef = doc(collection(db, 'grades'));
-        batch.set(gradeRef, {
-          studentId,
-          classId,
-          subject,
-          marks,
-          maxMarks,
-          examType,
-          recordedAt: serverTimestamp(),
-          recordedBy: 'teacher'
-        });
-      });
-      
-      await batch.commit();
-      console.log('✅ Student marks updated successfully');
+      await firebaseService.updateStudentMarks(classId, subject, marksData);
+      console.log(`✅ Marks updated for ${marksData.length} students`);
     } catch (error) {
       console.error('❌ Error updating student marks:', error);
       throw error;
     }
+  }
+
+  // Get all students across all classes (for teacher dashboard)
+  async getAllStudents(): Promise<StudentInfo[]> {
+    try {
+      const studentsQuery = query(
+        collection(db, 'users'),
+        where('isActive', '==', true),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const snapshot = await getDocs(studentsQuery);
+      return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name,
+          email: data.email,
+          studentId: data.studentId,
+          class: data.profile?.grade ? `Grade ${data.profile.grade}-${data.profile.section}` : 'Not Assigned',
+          rollNumber: data.rollNumber || 'N/A',
+          avatar: data.avatar,
+          parentContact: data.parentContact || data.profile?.parentContact,
+          isActive: data.isActive !== false
+        };
+      }) as StudentInfo[];
+    } catch (error) {
+      console.error('❌ Error getting all students:', error);
+      return [];
+    }
+  }
+
+  // Real-time subscription to all students
+  subscribeToAllStudents(callback: (students: StudentInfo[]) => void) {
+    return firebaseService.subscribeToAllStudents((students) => {
+      const formattedStudents = students.map(student => ({
+        id: student.id,
+        name: student.name,
+        email: student.email,
+        studentId: student.studentId,
+        class: student.profile?.grade ? `Grade ${student.profile.grade}-${student.profile.section}` : 'Not Assigned',
+        rollNumber: student.rollNumber || 'N/A',
+        avatar: student.avatar,
+        parentContact: student.parentContact || student.profile?.parentContact,
+        isActive: student.isActive !== false
+      }));
+      callback(formattedStudents);
+    });
   }
 
   // Get student performance data for AI reports
@@ -453,54 +483,6 @@ class TeacherService {
     }
   }
 
-  // Real-time listeners
-  subscribeToClassAttendance(classId: string, date: string, callback: (attendance: any[]) => void) {
-    const attendanceQuery = query(
-      collection(db, 'attendance'),
-      where('classId', '==', classId),
-      where('date', '==', date)
-    );
-    
-    return onSnapshot(attendanceQuery, (snapshot) => {
-      const attendance = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      callback(attendance);
-    });
-  }
-
-  subscribeToAssignmentSubmissions(assignmentId: string, callback: (submissions: any[]) => void) {
-    const submissionsQuery = query(
-      collection(db, 'assignments', assignmentId, 'submissions'),
-      orderBy('submittedAt', 'desc')
-    );
-    
-    return onSnapshot(submissionsQuery, async (snapshot) => {
-      const submissions = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        submittedAt: doc.data().submittedAt?.toDate()
-      }));
-      
-      // Enrich with student data
-      const enrichedSubmissions = await Promise.all(
-        submissions.map(async (submission) => {
-          const studentDoc = await getDoc(doc(db, 'users', submission.userId));
-          const studentData = studentDoc.exists() ? studentDoc.data() : {};
-          
-          return {
-            ...submission,
-            studentName: studentData.name || 'Unknown Student',
-            studentId: studentData.studentId || 'N/A'
-          };
-        })
-      );
-      
-      callback(enrichedSubmissions);
-    });
-  }
-
   // Check if faculty collection exists and seed if needed
   async checkAndSeedFacultyData() {
     try {
@@ -525,7 +507,7 @@ class TeacherService {
     try {
       const teachers = [
         {
-          id: 'teacher-demo-1',
+          id: 'demo-teacher-001',
           name: 'Dr. Sarah Johnson',
           email: 'teacher@demo.com',
           employeeId: 'EMP001',
@@ -563,7 +545,7 @@ class TeacherService {
           subject: 'Mathematics',
           grade: '12',
           section: 'A',
-          teacherId: 'teacher-demo-1',
+          teacherId: 'demo-teacher-001',
           students: [], // Will be populated when students join
           schedule: [
             { day: 'Monday', startTime: '09:00', endTime: '10:00' },
@@ -639,11 +621,6 @@ class TeacherService {
 
       await batch.commit();
       console.log('✅ Teacher and class data seeded successfully');
-      
-      // Log demo credentials
-      console.log('🔑 Demo Teacher Credentials:');
-      console.log('Email: teacher@demo.com');
-      console.log('Password: Use any password (you\'ll need to create this account in Firebase Auth)');
       
       return teachers;
     } catch (error) {

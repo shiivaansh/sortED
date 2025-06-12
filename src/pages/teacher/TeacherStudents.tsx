@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Search, Filter, Eye, Mail, Phone, TrendingUp, Calendar } from 'lucide-react';
+import { Users, Search, Filter, Eye, Mail, Phone, TrendingUp, Calendar, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { teacherService, ClassInfo, StudentInfo } from '../../services/teacherService';
 
@@ -13,16 +13,14 @@ const TeacherStudents: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<StudentInfo | null>(null);
   const [studentPerformance, setStudentPerformance] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [realTimeUpdates, setRealTimeUpdates] = useState(0);
 
   useEffect(() => {
     if (currentUser) {
       loadClasses();
+      setupRealTimeStudents();
     }
   }, [currentUser]);
-
-  useEffect(() => {
-    loadStudents();
-  }, [classes, selectedClass]);
 
   useEffect(() => {
     filterStudents();
@@ -39,47 +37,24 @@ const TeacherStudents: React.FC = () => {
     }
   };
 
-  const loadStudents = async () => {
-    if (classes.length === 0) return;
+  // Setup real-time student updates
+  const setupRealTimeStudents = () => {
+    if (!currentUser) return;
     
     setLoading(true);
-    try {
-      let allStudents: StudentInfo[] = [];
-      
-      if (selectedClass === 'all') {
-        // Load students from all classes
-        for (const classInfo of classes) {
-          const classStudents = await teacherService.getClassStudents(classInfo.id);
-          // Add class info to each student
-          const studentsWithClass = classStudents.map(student => ({
-            ...student,
-            class: classInfo.name,
-            subject: classInfo.subject
-          }));
-          allStudents = [...allStudents, ...studentsWithClass];
-        }
-        
-        // Remove duplicates based on student ID
-        const uniqueStudents = allStudents.filter((student, index, self) => 
-          index === self.findIndex(s => s.id === student.id)
-        );
-        setStudents(uniqueStudents);
-      } else {
-        // Load students from selected class
-        const classStudents = await teacherService.getClassStudents(selectedClass);
-        const selectedClassInfo = classes.find(c => c.id === selectedClass);
-        const studentsWithClass = classStudents.map(student => ({
-          ...student,
-          class: selectedClassInfo?.name || '',
-          subject: selectedClassInfo?.subject || ''
-        }));
-        setStudents(studentsWithClass);
-      }
-    } catch (error) {
-      console.error('Error loading students:', error);
-    } finally {
+    
+    // Subscribe to real-time student updates
+    const unsubscribe = teacherService.subscribeToAllStudents((updatedStudents) => {
+      console.log(`📊 Real-time update: ${updatedStudents.length} students`);
+      setStudents(updatedStudents);
+      setRealTimeUpdates(prev => prev + 1);
       setLoading(false);
-    }
+    });
+
+    // Cleanup subscription on unmount
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   };
 
   const filterStudents = () => {
@@ -89,8 +64,18 @@ const TeacherStudents: React.FC = () => {
       filtered = filtered.filter(student =>
         student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         student.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.rollNumber.toLowerCase().includes(searchTerm.toLowerCase())
+        student.rollNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        student.email.toLowerCase().includes(searchTerm.toLowerCase())
       );
+    }
+    
+    if (selectedClass !== 'all') {
+      const selectedClassData = classes.find(c => c.id === selectedClass);
+      if (selectedClassData) {
+        filtered = filtered.filter(student => 
+          selectedClassData.students.includes(student.id)
+        );
+      }
     }
     
     setFilteredStudents(filtered);
@@ -117,6 +102,11 @@ const TeacherStudents: React.FC = () => {
     }
   };
 
+  const refreshStudents = () => {
+    setLoading(true);
+    setupRealTimeStudents();
+  };
+
   const stats = [
     {
       title: 'Total Students',
@@ -140,9 +130,9 @@ const TeacherStudents: React.FC = () => {
       bgColor: 'bg-purple-50 dark:bg-purple-900/20'
     },
     {
-      title: 'Average Performance',
-      value: studentPerformance ? `${studentPerformance.summary.averageGrade.toFixed(1)}%` : '--',
-      icon: TrendingUp,
+      title: 'Real-time Updates',
+      value: realTimeUpdates,
+      icon: RefreshCw,
       color: 'text-orange-600',
       bgColor: 'bg-orange-50 dark:bg-orange-900/20'
     }
@@ -151,10 +141,20 @@ const TeacherStudents: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Students</h1>
-        <div className="text-sm text-gray-500 dark:text-gray-400">
-          {filteredStudents.length} of {students.length} students
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Students</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {filteredStudents.length} of {students.length} students • Real-time updates: {realTimeUpdates}
+          </p>
         </div>
+        <button
+          onClick={refreshStudents}
+          disabled={loading}
+          className="flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          {loading ? 'Loading...' : 'Refresh'}
+        </button>
       </div>
 
       {/* Stats */}
@@ -172,6 +172,21 @@ const TeacherStudents: React.FC = () => {
         ))}
       </div>
 
+      {/* Real-time Status */}
+      <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+          <div>
+            <h4 className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+              🔴 Live Student Data
+            </h4>
+            <p className="text-xs text-emerald-700 dark:text-emerald-300">
+              Student registrations and updates are reflected in real-time. New students appear automatically when they sign up.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col lg:flex-row gap-4">
@@ -179,7 +194,7 @@ const TeacherStudents: React.FC = () => {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search students by name, ID, or roll number..."
+              placeholder="Search students by name, ID, roll number, or email..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -196,7 +211,7 @@ const TeacherStudents: React.FC = () => {
               <option value="all">All Classes</option>
               {classes.map(cls => (
                 <option key={cls.id} value={cls.id}>
-                  {cls.name} - {cls.subject}
+                  {cls.name} - {cls.subject} ({cls.students.length} students)
                 </option>
               ))}
             </select>
@@ -209,11 +224,17 @@ const TeacherStudents: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             Students List ({filteredStudents.length})
+            {realTimeUpdates > 0 && (
+              <span className="ml-2 px-2 py-1 text-xs bg-emerald-100 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 rounded-full">
+                Live
+              </span>
+            )}
           </h3>
           
           {loading ? (
             <div className="text-center py-8">
-              <div className="animate-spin w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full mx-auto"></div>
+              <div className="animate-spin w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">Loading students...</p>
             </div>
           ) : filteredStudents.length === 0 ? (
             <div className="text-center py-8">
@@ -222,7 +243,7 @@ const TeacherStudents: React.FC = () => {
                 {searchTerm ? 'No students found' : 'No students available'}
               </h4>
               <p className="text-gray-500 dark:text-gray-400">
-                {searchTerm ? `No students match "${searchTerm}"` : 'No students are enrolled in your classes yet.'}
+                {searchTerm ? `No students match "${searchTerm}"` : 'Students will appear here when they register.'}
               </p>
             </div>
           ) : (
@@ -230,7 +251,7 @@ const TeacherStudents: React.FC = () => {
               {filteredStudents.map((student) => (
                 <div
                   key={student.id}
-                  className={`flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:shadow-md transition-shadow cursor-pointer ${
+                  className={`flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:shadow-md transition-all cursor-pointer ${
                     selectedStudent?.id === student.id ? 'ring-2 ring-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : ''
                   }`}
                   onClick={() => viewStudentDetails(student)}
@@ -247,7 +268,7 @@ const TeacherStudents: React.FC = () => {
                         <span>ID: {student.studentId}</span>
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {(student as any).class} - {(student as any).subject}
+                        {student.class}
                       </p>
                     </div>
                   </div>
@@ -302,12 +323,12 @@ const TeacherStudents: React.FC = () => {
                       {selectedStudent.studentId} • Roll: {selectedStudent.rollNumber}
                     </p>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {(selectedStudent as any).class}
+                      {selectedStudent.class}
                     </p>
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 gap-4 text-sm">
                   <div className="flex items-center">
                     <Mail className="w-4 h-4 mr-2 text-gray-400" />
                     <span className="text-gray-600 dark:text-gray-400">{selectedStudent.email}</span>
@@ -335,7 +356,7 @@ const TeacherStudents: React.FC = () => {
                       </div>
                       <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2 mt-2">
                         <div
-                          className="bg-blue-600 h-2 rounded-full"
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-500"
                           style={{ width: `${studentPerformance.summary.attendanceRate}%` }}
                         ></div>
                       </div>
@@ -350,7 +371,7 @@ const TeacherStudents: React.FC = () => {
                       </div>
                       <div className="w-full bg-green-200 dark:bg-green-800 rounded-full h-2 mt-2">
                         <div
-                          className="bg-green-600 h-2 rounded-full"
+                          className="bg-green-600 h-2 rounded-full transition-all duration-500"
                           style={{ width: `${studentPerformance.summary.averageGrade}%` }}
                         ></div>
                       </div>
@@ -365,7 +386,7 @@ const TeacherStudents: React.FC = () => {
                       </div>
                       <div className="w-full bg-purple-200 dark:bg-purple-800 rounded-full h-2 mt-2">
                         <div
-                          className="bg-purple-600 h-2 rounded-full"
+                          className="bg-purple-600 h-2 rounded-full transition-all duration-500"
                           style={{ width: `${studentPerformance.summary.assignmentSubmissionRate}%` }}
                         ></div>
                       </div>

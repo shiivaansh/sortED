@@ -36,6 +36,7 @@ class FirebaseService {
         const profileData = {
           ...userData,
           studentId: userData.studentId || `STU-${Date.now()}`,
+          rollNumber: `R${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
           joinedCommunities: [],
           eventRegistrations: [],
           assignmentSubmissions: [],
@@ -50,7 +51,10 @@ class FirebaseService {
             interests: [],
             academicYear: 'Year 12',
             department: 'Science',
-            avatar: ''
+            avatar: '',
+            grade: '12',
+            section: 'A',
+            parentContact: `+1-${Math.floor(Math.random() * 9000000000) + 1000000000}`
           },
           stats: {
             communitiesJoined: 0,
@@ -65,11 +69,16 @@ class FirebaseService {
             notifications: true,
             emailUpdates: true,
             theme: 'light'
-          }
+          },
+          isActive: true,
+          enrolledClasses: [] // Classes the student is enrolled in
         };
         
         await setDoc(userRef, profileData);
         console.log('✅ User profile initialized in Firestore:', userId);
+        
+        // Auto-enroll student in default classes based on grade
+        await this.autoEnrollStudentInClasses(userId, profileData.profile.grade, profileData.profile.section);
         
         // Also create initial attendance records
         await this.initializeAttendanceRecords(userId);
@@ -89,6 +98,340 @@ class FirebaseService {
       console.error('❌ Error initializing user profile:', error);
       throw error;
     }
+  }
+
+  // Auto-enroll student in classes based on their grade and section
+  async autoEnrollStudentInClasses(userId: string, grade: string, section: string) {
+    try {
+      // Find classes that match the student's grade and section
+      const classesQuery = query(
+        collection(db, 'classes'),
+        where('grade', '==', grade),
+        where('isActive', '==', true)
+      );
+      
+      const classesSnapshot = await getDocs(classesQuery);
+      const batch = writeBatch(db);
+      const enrolledClasses = [];
+      
+      for (const classDoc of classesSnapshot.docs) {
+        const classData = classDoc.data();
+        
+        // Enroll student in class
+        const classRef = doc(db, 'classes', classDoc.id);
+        batch.update(classRef, {
+          students: arrayUnion(userId),
+          lastUpdated: serverTimestamp()
+        });
+        
+        enrolledClasses.push(classDoc.id);
+        
+        console.log(`📚 Auto-enrolled student ${userId} in class: ${classData.name}`);
+      }
+      
+      // Update student's enrolled classes
+      const userRef = doc(db, 'users', userId);
+      batch.update(userRef, {
+        enrolledClasses: enrolledClasses,
+        lastActive: serverTimestamp()
+      });
+      
+      await batch.commit();
+      console.log('✅ Student auto-enrolled in classes successfully');
+      
+      return enrolledClasses;
+    } catch (error) {
+      console.error('❌ Error auto-enrolling student:', error);
+      return [];
+    }
+  }
+
+  // Get all students for teachers (real-time)
+  subscribeToAllStudents(callback: (students: any[]) => void) {
+    const studentsQuery = query(
+      collection(db, 'users'),
+      where('isActive', '==', true),
+      orderBy('createdAt', 'desc')
+    );
+    
+    return onSnapshot(studentsQuery, (snapshot) => {
+      const students = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate(),
+        lastActive: doc.data().lastActive?.toDate()
+      }));
+      
+      console.log(`📊 Real-time students update: ${students.length} students`);
+      callback(students);
+    });
+  }
+
+  // Get students by class (real-time)
+  subscribeToClassStudents(classId: string, callback: (students: any[]) => void) {
+    const classRef = doc(db, 'classes', classId);
+    
+    return onSnapshot(classRef, async (classDoc) => {
+      if (classDoc.exists()) {
+        const classData = classDoc.data();
+        const studentIds = classData.students || [];
+        
+        if (studentIds.length > 0) {
+          // Get student details
+          const studentsQuery = query(
+            collection(db, 'users'),
+            where('__name__', 'in', studentIds)
+          );
+          
+          const studentsSnapshot = await getDocs(studentsQuery);
+          const students = studentsSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate(),
+            lastActive: doc.data().lastActive?.toDate()
+          }));
+          
+          callback(students);
+        } else {
+          callback([]);
+        }
+      }
+    });
+  }
+
+  // Create assignment for specific class
+  async createAssignmentForClass(assignmentData: {
+    title: string;
+    description: string;
+    classId: string;
+    subject: string;
+    dueDate: string;
+    maxMarks: number;
+    instructions?: string;
+  }, teacherId: string) {
+    try {
+      // Get class students
+      const classDoc = await getDoc(doc(db, 'classes', assignmentData.classId));
+      if (!classDoc.exists()) {
+        throw new Error('Class not found');
+      }
+      
+      const classData = classDoc.data();
+      const studentIds = classData.students || [];
+      
+      // Create assignment
+      const assignmentRef = await addDoc(collection(db, 'assignments'), {
+        ...assignmentData,
+        teacherId,
+        studentIds, // Store which students this assignment is for
+        createdAt: serverTimestamp(),
+        isActive: true,
+        stats: {
+          totalSubmissions: 0,
+          averageGrade: 0,
+          submissionRate: 0,
+          totalStudents: studentIds.length
+        }
+      });
+      
+      // Create submission placeholders for each student
+      const batch = writeBatch(db);
+      
+      for (const studentId of studentIds) {
+        const submissionRef = doc(collection(db, 'assignments', assignmentRef.id, 'submissions'));
+        batch.set(submissionRef, {
+          studentId,
+          assignmentId: assignmentRef.id,
+          status: 'pending',
+          submittedAt: null,
+          content: null,
+          grade: null,
+          feedback: null,
+          createdAt: serverTimestamp()
+        });
+        
+        // Add to student's assignment list
+        const studentRef = doc(db, 'users', studentId);
+        batch.update(studentRef, {
+          assignmentSubmissions: arrayUnion(assignmentRef.id),
+          lastActive: serverTimestamp()
+        });
+      }
+      
+      await batch.commit();
+      
+      console.log(`✅ Assignment created for ${studentIds.length} students in class ${assignmentData.classId}`);
+      return assignmentRef.id;
+    } catch (error) {
+      console.error('❌ Error creating assignment for class:', error);
+      throw error;
+    }
+  }
+
+  // Mark attendance for entire class
+  async markClassAttendance(classId: string, date: string, attendanceData: Array<{
+    studentId: string;
+    status: 'present' | 'absent' | 'late';
+  }>) {
+    try {
+      const batch = writeBatch(db);
+      
+      // Create attendance records for each student
+      for (const { studentId, status } of attendanceData) {
+        const attendanceRef = doc(collection(db, 'attendance'));
+        batch.set(attendanceRef, {
+          studentId,
+          classId,
+          date,
+          status,
+          markedAt: serverTimestamp(),
+          markedBy: 'teacher'
+        });
+        
+        // Update student's attendance records
+        const studentRef = doc(db, 'users', studentId);
+        const studentDoc = await getDoc(studentRef);
+        
+        if (studentDoc.exists()) {
+          const studentData = studentDoc.data();
+          const attendanceRecords = studentData.attendanceRecords || [];
+          const updatedRecords = [...attendanceRecords.filter((r: any) => r.date !== date), { date, status }];
+          
+          // Calculate attendance percentage
+          const presentDays = updatedRecords.filter((r: any) => r.status === 'present').length;
+          const attendancePercentage = Math.round((presentDays / updatedRecords.length) * 100);
+          
+          batch.update(studentRef, {
+            attendanceRecords: updatedRecords,
+            'stats.attendancePercentage': attendancePercentage,
+            lastActive: serverTimestamp()
+          });
+        }
+      }
+      
+      await batch.commit();
+      console.log(`✅ Attendance marked for ${attendanceData.length} students on ${date}`);
+    } catch (error) {
+      console.error('❌ Error marking class attendance:', error);
+      throw error;
+    }
+  }
+
+  // Update marks for multiple students
+  async updateStudentMarks(classId: string, subject: string, marksData: Array<{
+    studentId: string;
+    marks: number;
+    maxMarks: number;
+    examType: string;
+  }>) {
+    try {
+      const batch = writeBatch(db);
+      
+      for (const { studentId, marks, maxMarks, examType } of marksData) {
+        // Create grade record
+        const gradeRef = doc(collection(db, 'grades'));
+        batch.set(gradeRef, {
+          studentId,
+          classId,
+          subject,
+          marks,
+          maxMarks,
+          examType,
+          recordedAt: serverTimestamp(),
+          recordedBy: 'teacher'
+        });
+        
+        // Update student's grade records and GPA
+        const studentRef = doc(db, 'users', studentId);
+        const studentDoc = await getDoc(studentRef);
+        
+        if (studentDoc.exists()) {
+          const studentData = studentDoc.data();
+          const gradeRecords = studentData.gradeRecords || [];
+          
+          // Update or add grade record
+          const existingIndex = gradeRecords.findIndex((g: any) => g.name === subject);
+          if (existingIndex >= 0) {
+            gradeRecords[existingIndex] = { name: subject, marks, maxMarks };
+          } else {
+            gradeRecords.push({ name: subject, marks, maxMarks });
+          }
+          
+          // Calculate GPA
+          const totalPercentage = gradeRecords.reduce((sum: number, grade: any) => 
+            sum + (grade.marks / grade.maxMarks) * 100, 0);
+          const averagePercentage = totalPercentage / gradeRecords.length;
+          const gpa = averagePercentage >= 90 ? 10 : Math.floor(averagePercentage / 10) + 1;
+          
+          batch.update(studentRef, {
+            gradeRecords,
+            'stats.currentGPA': gpa,
+            lastActive: serverTimestamp()
+          });
+        }
+      }
+      
+      await batch.commit();
+      console.log(`✅ Marks updated for ${marksData.length} students in ${subject}`);
+    } catch (error) {
+      console.error('❌ Error updating student marks:', error);
+      throw error;
+    }
+  }
+
+  // Get real-time attendance for a class and date
+  subscribeToClassAttendance(classId: string, date: string, callback: (attendance: any[]) => void) {
+    const attendanceQuery = query(
+      collection(db, 'attendance'),
+      where('classId', '==', classId),
+      where('date', '==', date)
+    );
+    
+    return onSnapshot(attendanceQuery, (snapshot) => {
+      const attendance = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        markedAt: doc.data().markedAt?.toDate()
+      }));
+      
+      console.log(`📅 Real-time attendance update for ${classId} on ${date}: ${attendance.length} records`);
+      callback(attendance);
+    });
+  }
+
+  // Get real-time assignment submissions
+  subscribeToAssignmentSubmissions(assignmentId: string, callback: (submissions: any[]) => void) {
+    const submissionsQuery = query(
+      collection(db, 'assignments', assignmentId, 'submissions'),
+      orderBy('createdAt', 'desc')
+    );
+    
+    return onSnapshot(submissionsQuery, async (snapshot) => {
+      const submissions = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        submittedAt: doc.data().submittedAt?.toDate(),
+        createdAt: doc.data().createdAt?.toDate()
+      }));
+      
+      // Enrich with student data
+      const enrichedSubmissions = await Promise.all(
+        submissions.map(async (submission) => {
+          const studentDoc = await getDoc(doc(db, 'users', submission.studentId));
+          const studentData = studentDoc.exists() ? studentDoc.data() : {};
+          
+          return {
+            ...submission,
+            studentName: studentData.name || 'Unknown Student',
+            studentId: studentData.studentId || 'N/A',
+            rollNumber: studentData.rollNumber || 'N/A'
+          };
+        })
+      );
+      
+      console.log(`📝 Real-time submissions update for assignment ${assignmentId}: ${enrichedSubmissions.length} submissions`);
+      callback(enrichedSubmissions);
+    });
   }
 
   // Initialize attendance records for a user
