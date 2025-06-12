@@ -18,7 +18,7 @@ const TeacherStudents: React.FC = () => {
   useEffect(() => {
     if (currentUser) {
       loadClasses();
-      setupRealTimeStudents();
+      loadAllStudents();
     }
   }, [currentUser]);
 
@@ -37,38 +37,39 @@ const TeacherStudents: React.FC = () => {
     }
   };
 
-  // Setup real-time student updates
-  const setupRealTimeStudents = () => {
+  const loadAllStudents = async () => {
     if (!currentUser) return;
     
     setLoading(true);
-    
-    // Subscribe to real-time student updates
-    const unsubscribe = teacherService.subscribeToAllStudents((updatedStudents) => {
-      console.log(`📊 Real-time update: ${updatedStudents.length} students`);
-      setStudents(updatedStudents);
+    try {
+      // Get all students from the system
+      const allStudents = await teacherService.getAllStudents();
+      console.log('📚 Loaded students:', allStudents);
+      setStudents(allStudents);
       setRealTimeUpdates(prev => prev + 1);
+    } catch (error) {
+      console.error('Error loading students:', error);
+    } finally {
       setLoading(false);
-    });
-
-    // Cleanup subscription on unmount
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    }
   };
 
   const filterStudents = () => {
     let filtered = students;
     
-    if (searchTerm) {
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
       filtered = filtered.filter(student =>
-        student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.rollNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.email.toLowerCase().includes(searchTerm.toLowerCase())
+        student.name.toLowerCase().includes(searchLower) ||
+        student.studentId.toLowerCase().includes(searchLower) ||
+        student.rollNumber.toLowerCase().includes(searchLower) ||
+        student.email.toLowerCase().includes(searchLower) ||
+        student.class.toLowerCase().includes(searchLower)
       );
     }
     
+    // Apply class filter
     if (selectedClass !== 'all') {
       const selectedClassData = classes.find(c => c.id === selectedClass);
       if (selectedClassData) {
@@ -102,9 +103,16 @@ const TeacherStudents: React.FC = () => {
     }
   };
 
-  const refreshStudents = () => {
+  const refreshStudents = async () => {
     setLoading(true);
-    setupRealTimeStudents();
+    try {
+      await loadAllStudents();
+      console.log('✅ Students refreshed successfully');
+    } catch (error) {
+      console.error('❌ Error refreshing students:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const stats = [
@@ -130,8 +138,8 @@ const TeacherStudents: React.FC = () => {
       bgColor: 'bg-purple-50 dark:bg-purple-900/20'
     },
     {
-      title: 'Real-time Updates',
-      value: realTimeUpdates,
+      title: 'Filtered Results',
+      value: filteredStudents.length,
       icon: RefreshCw,
       color: 'text-orange-600',
       bgColor: 'bg-orange-50 dark:bg-orange-900/20'
@@ -144,7 +152,8 @@ const TeacherStudents: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Students</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {filteredStudents.length} of {students.length} students • Real-time updates: {realTimeUpdates}
+            Showing {filteredStudents.length} of {students.length} students
+            {searchTerm && ` matching "${searchTerm}"`}
           </p>
         </div>
         <button
@@ -172,29 +181,14 @@ const TeacherStudents: React.FC = () => {
         ))}
       </div>
 
-      {/* Real-time Status */}
-      <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4">
-        <div className="flex items-center space-x-3">
-          <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
-          <div>
-            <h4 className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
-              🔴 Live Student Data
-            </h4>
-            <p className="text-xs text-emerald-700 dark:text-emerald-300">
-              Student registrations and updates are reflected in real-time. New students appear automatically when they sign up.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Filters */}
+      {/* Search and Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search students by name, ID, roll number, or email..."
+              placeholder="Search students by name, ID, roll number, email, or class..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -208,7 +202,7 @@ const TeacherStudents: React.FC = () => {
               onChange={(e) => setSelectedClass(e.target.value)}
               className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             >
-              <option value="all">All Classes</option>
+              <option value="all">All Students</option>
               {classes.map(cls => (
                 <option key={cls.id} value={cls.id}>
                   {cls.name} - {cls.subject} ({cls.students.length} students)
@@ -224,11 +218,6 @@ const TeacherStudents: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             Students List ({filteredStudents.length})
-            {realTimeUpdates > 0 && (
-              <span className="ml-2 px-2 py-1 text-xs bg-emerald-100 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 rounded-full">
-                Live
-              </span>
-            )}
           </h3>
           
           {loading ? (
@@ -245,6 +234,14 @@ const TeacherStudents: React.FC = () => {
               <p className="text-gray-500 dark:text-gray-400">
                 {searchTerm ? `No students match "${searchTerm}"` : 'Students will appear here when they register.'}
               </p>
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="mt-2 text-sm text-blue-600 hover:text-blue-700"
+                >
+                  Clear search
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3 max-h-96 overflow-y-auto">
