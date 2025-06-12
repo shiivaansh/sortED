@@ -13,20 +13,32 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+let app;
+let auth;
+let db;
 
-// Initialize Firebase Authentication and get a reference to the service
-export const auth = getAuth(app);
-
-// Initialize Cloud Firestore and get a reference to the service
-export const db = getFirestore(app);
-
-// Enable network persistence for Firestore
 try {
-  // This helps with offline functionality
-  console.log('Firebase initialized successfully');
+  console.log('🔥 Initializing Firebase...');
+  app = initializeApp(firebaseConfig);
+  
+  // Initialize Firebase Authentication
+  auth = getAuth(app);
+  
+  // Configure auth settings for better reliability
+  auth.settings.appVerificationDisabledForTesting = false;
+  
+  // Initialize Cloud Firestore
+  db = getFirestore(app);
+  
+  console.log('✅ Firebase initialized successfully');
+  console.log('🔐 Auth domain:', firebaseConfig.authDomain);
+  console.log('📊 Project ID:', firebaseConfig.projectId);
+  
 } catch (error) {
-  console.error('Firebase initialization error:', error);
+  console.error('❌ Firebase initialization error:', error);
+  throw new Error('Failed to initialize Firebase. Please check your internet connection and try again.');
 }
 
+// Export the initialized services
+export { auth, db };
 export default app;

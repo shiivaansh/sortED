@@ -38,6 +38,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('🔐 Starting user registration process...');
       console.log('Email:', email);
       
+      // Check if Firebase is properly initialized
+      if (!auth) {
+        throw new Error('Firebase authentication is not initialized. Please refresh the page and try again.');
+      }
+      
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       console.log('✅ Firebase Auth account created successfully');
       
@@ -67,13 +72,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('❌ Registration failed:', error);
       const authError = error as AuthError;
       
-      // Provide more specific error messages
+      // Handle specific Firebase errors
       if (authError.code === 'auth/email-already-in-use') {
         throw new Error('This email is already registered. Please try logging in instead.');
       } else if (authError.code === 'auth/weak-password') {
         throw new Error('Password is too weak. Please use at least 6 characters.');
       } else if (authError.code === 'auth/invalid-email') {
         throw new Error('Invalid email address format.');
+      } else if (authError.code === 'auth/network-request-failed') {
+        throw new Error('Network error. Please check your internet connection and try again.');
+      } else if (authError.code === 'auth/too-many-requests') {
+        throw new Error('Too many requests. Please wait a moment and try again.');
+      } else if (authError.message?.includes('visibility-check-was-unavailable')) {
+        throw new Error('Connection issue with Firebase. Please check your internet connection and try again.');
       } else {
         throw new Error(authError.message || 'Registration failed. Please try again.');
       }
@@ -85,6 +96,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('🔐 Starting login process...');
       console.log('Email:', email);
       
+      // Check if Firebase is properly initialized
+      if (!auth) {
+        throw new Error('Firebase authentication is not initialized. Please refresh the page and try again.');
+      }
+      
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       console.log('✅ Login successful');
       
@@ -93,7 +109,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('❌ Login failed:', error);
       const authError = error as AuthError;
       
-      // Provide more specific error messages
+      // Handle specific Firebase errors
       if (authError.code === 'auth/user-not-found') {
         throw new Error('No account found with this email address.');
       } else if (authError.code === 'auth/wrong-password') {
@@ -104,6 +120,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Invalid email or password. Please check your credentials.');
       } else if (authError.code === 'auth/too-many-requests') {
         throw new Error('Too many failed login attempts. Please try again later.');
+      } else if (authError.code === 'auth/network-request-failed') {
+        throw new Error('Network error. Please check your internet connection and try again.');
+      } else if (authError.message?.includes('visibility-check-was-unavailable')) {
+        throw new Error('Connection issue with Firebase. Please check your internet connection and try again.');
       } else {
         throw new Error(authError.message || 'Login failed. Please try again.');
       }
@@ -112,6 +132,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async (): Promise<void> => {
     try {
+      if (!auth) {
+        throw new Error('Firebase authentication is not initialized.');
+      }
+      
       await signOut(auth);
       console.log('✅ Logout successful');
     } catch (error) {
@@ -122,6 +146,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     console.log('🔄 Setting up auth state listener...');
+    
+    if (!auth) {
+      console.error('❌ Firebase auth not initialized');
+      setLoading(false);
+      return;
+    }
     
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       console.log('🔄 Auth state changed:', user ? `User: ${user.email}` : 'No user');
