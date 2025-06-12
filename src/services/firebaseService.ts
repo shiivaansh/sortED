@@ -148,7 +148,8 @@ class FirebaseService {
         const userRef = doc(db, 'users', userId);
         batch.update(userRef, {
           enrolledClasses: arrayUnion(...enrolledClasses),
-          lastActive: serverTimestamp()
+          lastActive: serverTimestamp(),
+          lastClassUpdate: serverTimestamp() // Trigger real-time update
         });
         
         await batch.commit();
@@ -286,7 +287,7 @@ class FirebaseService {
     });
   }
 
-  // Real-time subscription to student's enrolled classes
+  // Real-time subscription to student's enrolled classes - ENHANCED
   subscribeToStudentClasses(userId: string, callback: (classes: any[]) => void) {
     console.log(`🔄 Setting up real-time subscription to student ${userId} classes...`);
     
@@ -339,6 +340,29 @@ class FirebaseService {
       }
     }, (error) => {
       console.error('❌ Error in student classes subscription:', error);
+      callback([]);
+    });
+  }
+
+  // Real-time subscription to student attendance - ENHANCED
+  subscribeToStudentAttendance(userId: string, callback: (attendance: any[]) => void) {
+    console.log(`🔄 Setting up real-time subscription to student ${userId} attendance...`);
+    
+    const userRef = doc(db, 'users', userId);
+    
+    return onSnapshot(userRef, (userDoc) => {
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const attendanceRecords = userData.attendanceRecords || [];
+        
+        console.log(`📅 Student ${userId} has ${attendanceRecords.length} attendance records`);
+        callback(attendanceRecords);
+      } else {
+        console.log(`❌ Student ${userId} not found`);
+        callback([]);
+      }
+    }, (error) => {
+      console.error('❌ Error in student attendance subscription:', error);
       callback([]);
     });
   }

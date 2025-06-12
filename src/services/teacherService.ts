@@ -150,7 +150,7 @@ class TeacherService {
     }
   }
 
-  // Create a new class - FIXED
+  // Create a new class - FIXED with better error handling
   async createClass(classData: {
     name: string;
     subject: string;
@@ -166,33 +166,48 @@ class TeacherService {
     try {
       console.log('🏫 Creating new class:', classData);
       
-      // Use writeBatch for atomic operations
-      const batch = writeBatch(db);
-      
-      // Create the class document
+      // Validate required fields
+      if (!classData.name || !classData.subject || !classData.grade || !classData.section || !classData.teacherId) {
+        throw new Error('Missing required fields for class creation');
+      }
+
+      // Check if teacher exists
+      const teacherDoc = await getDoc(doc(db, 'faculty', classData.teacherId));
+      if (!teacherDoc.exists()) {
+        throw new Error('Teacher not found');
+      }
+
+      // Create the class document first
       const classRef = doc(collection(db, 'classes'));
-      batch.set(classRef, {
+      const classDocData = {
         ...classData,
         students: [], // Empty array initially
         createdAt: serverTimestamp(),
         isActive: true,
         lastUpdated: serverTimestamp()
-      });
+      };
+
+      await setDoc(classRef, classDocData);
+      console.log('✅ Class document created with ID:', classRef.id);
 
       // Update teacher's classes list
-      const teacherRef = doc(db, 'faculty', classData.teacherId);
-      batch.update(teacherRef, {
-        classes: arrayUnion(classRef.id),
-        lastUpdated: serverTimestamp()
-      });
+      try {
+        const teacherRef = doc(db, 'faculty', classData.teacherId);
+        await updateDoc(teacherRef, {
+          classes: arrayUnion(classRef.id),
+          lastUpdated: serverTimestamp()
+        });
+        console.log('✅ Teacher classes list updated');
+      } catch (teacherUpdateError) {
+        console.warn('⚠️ Could not update teacher classes list:', teacherUpdateError);
+      }
 
-      // Commit the batch
-      await batch.commit();
-
-      console.log('✅ Class created with ID:', classRef.id);
-      
       // Auto-enroll eligible students in the new class
-      await this.autoEnrollStudentsInClass(classRef.id, classData.grade, classData.section);
+      try {
+        await this.autoEnrollStudentsInClass(classRef.id, classData.grade, classData.section);
+      } catch (enrollmentError) {
+        console.warn('⚠️ Could not auto-enroll students:', enrollmentError);
+      }
       
       return classRef.id;
     } catch (error) {
@@ -201,7 +216,7 @@ class TeacherService {
     }
   }
 
-  // Auto-enroll students in a class based on grade and section
+  // Auto-enroll students in a class based on grade and section - ENHANCED
   async autoEnrollStudentsInClass(classId: string, grade: string, section: string) {
     try {
       console.log(`🎓 Auto-enrolling students in class ${classId} for Grade ${grade}-${section}...`);
@@ -218,7 +233,7 @@ class TeacherService {
       
       if (studentsSnapshot.empty) {
         console.log('ℹ️ No students found for auto-enrollment');
-        return;
+        return [];
       }
       
       const batch = writeBatch(db);
@@ -226,30 +241,60 @@ class TeacherService {
       
       studentsSnapshot.docs.forEach(studentDoc => {
         const studentId = studentDoc.id;
-        studentIds.push(studentId);
+        const studentData = studentDoc.data();
         
-        // Update student's enrolled classes
-        const studentRef = doc(db, 'users', studentId);
-        batch.update(studentRef, {
-          enrolledClasses: arrayUnion(classId),
-          lastActive: serverTimestamp()
+        // Only enroll if not already enrolled
+        if (!studentData.enrolledClasses?.includes(classId)) {
+          studentIds.push(studentId);
+          
+          // Update student's enrolled classes
+          const studentRef = doc(db, 'users', studentId);
+          batch.update(studentRef, {
+            enrolledClasses: arrayUnion(classId),
+            lastActive: serverTimestamp(),
+            lastClassUpdate: serverTimestamp() // Trigger real-time update
+          });
+        }
+      });
+      
+      if (studentIds.length > 0) {
+        // Update class with enrolled students
+        const classRef = doc(db, 'classes', classId);
+        batch.update(classRef, {
+          students: studentIds,
+          lastUpdated: serverTimestamp()
         });
-      });
+        
+        await batch.commit();
+        console.log(`✅ Auto-enrolled ${studentIds.length} students in class ${classId}`);
+        
+        // Trigger real-time notifications
+        await this.notifyStudentsOfClassUpdate(studentIds);
+      }
       
-      // Update class with enrolled students
-      const classRef = doc(db, 'classes', classId);
-      batch.update(classRef, {
-        students: studentIds,
-        lastUpdated: serverTimestamp()
-      });
-      
-      await batch.commit();
-      
-      console.log(`✅ Auto-enrolled ${studentIds.length} students in class ${classId}`);
       return studentIds;
     } catch (error) {
       console.error('❌ Error auto-enrolling students:', error);
       return [];
+    }
+  }
+
+  // Notify students of class updates (triggers real-time listeners)
+  private async notifyStudentsOfClassUpdate(studentIds: string[]) {
+    try {
+      const batch = writeBatch(db);
+      
+      studentIds.forEach(studentId => {
+        const studentRef = doc(db, 'users', studentId);
+        batch.update(studentRef, {
+          lastClassUpdate: serverTimestamp()
+        });
+      });
+      
+      await batch.commit();
+      console.log('📡 Notified students of class update');
+    } catch (error) {
+      console.warn('⚠️ Could not notify students of class update:', error);
     }
   }
 
@@ -296,17 +341,20 @@ class TeacherService {
         );
         
         const snapshot = await getDocs(studentsQuery);
-        const batchStudents = snapshot.docs.map(doc => ({
-          id: doc.id,
-          name: doc.data().name,
-          email: doc.data().email,
-          studentId: doc.data().studentId,
-          class: classData.name,
-          rollNumber: doc.data().rollNumber || `R${Math.floor(Math.random() * 100)}`,
-          avatar: doc.data().avatar,
-          parentContact: doc.data().parentContact || doc.data().profile?.parentContact,
-          isActive: doc.data().isActive !== false
-        }));
+        const batchStudents = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.name || 'Unknown Student',
+            email: data.email || '',
+            studentId: data.studentId || 'N/A',
+            class: classData.name,
+            rollNumber: data.rollNumber || `R${Math.floor(Math.random() * 100)}`,
+            avatar: data.avatar || '',
+            parentContact: data.parentContact || data.profile?.parentContact || '',
+            isActive: data.isActive !== false
+          };
+        });
         
         students.push(...batchStudents);
       }
@@ -494,7 +542,8 @@ class TeacherService {
             batch.update(studentRef, {
               attendanceRecords: updatedRecords,
               'stats.attendancePercentage': attendancePercentage,
-              lastActive: serverTimestamp()
+              lastActive: serverTimestamp(),
+              lastAttendanceUpdate: serverTimestamp() // Trigger real-time update
             });
           }
         } catch (studentError) {
@@ -506,7 +555,7 @@ class TeacherService {
       console.log(`✅ Attendance marked for ${attendanceData.length} students on ${date}`);
       
       // Trigger real-time updates for all affected students
-      this.notifyStudentsOfAttendanceUpdate(attendanceData.map(a => a.studentId));
+      await this.notifyStudentsOfAttendanceUpdate(attendanceData.map(a => a.studentId));
       
     } catch (error) {
       console.error('❌ Error marking class attendance:', error);
