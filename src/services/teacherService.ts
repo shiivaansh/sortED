@@ -321,12 +321,17 @@ class TeacherService {
   // Get students in a class with real-time updates
   async getClassStudents(classId: string): Promise<StudentInfo[]> {
     try {
+      console.log(`Getting students for class ${classId}...`);
       const classDoc = await getDoc(doc(db, 'classes', classId));
-      if (!classDoc.exists()) return [];
+      if (!classDoc.exists()) {
+        console.log(`Class ${classId} not found`);
+        return [];
+      }
       
       const classData = classDoc.data();
       const studentIds = classData.students || [];
       
+      console.log(`Class ${classId} has ${studentIds.length} student IDs:`, studentIds);
       if (studentIds.length === 0) return [];
       
       // Get students in batches (Firestore 'in' query limit is 10)
@@ -335,12 +340,14 @@ class TeacherService {
       
       for (let i = 0; i < studentIds.length; i += batchSize) {
         const batch = studentIds.slice(i, i + batchSize);
+        console.log(`Processing batch of ${batch.length} students:`, batch);
         const studentsQuery = query(
           collection(db, 'users'),
           where('__name__', 'in', batch)
         );
         
         const snapshot = await getDocs(studentsQuery);
+        console.log(`Found ${snapshot.docs.length} student documents in this batch`);
         const batchStudents = snapshot.docs.map(doc => {
           const data = doc.data();
           return {
@@ -359,6 +366,7 @@ class TeacherService {
         students.push(...batchStudents);
       }
       
+      console.log(`Returning ${students.length} students for class ${classId}`);
       return students as StudentInfo[];
     } catch (error) {
       console.error('❌ Error getting class students:', error);
@@ -891,31 +899,3 @@ class TeacherService {
   }
 
   // Create demo teacher account for testing
-  async createDemoTeacherAccount() {
-    try {
-      // This will create the faculty record for the demo teacher
-      const demoTeacher = {
-        name: 'Demo Teacher',
-        email: 'teacher@demo.com',
-        employeeId: 'DEMO001',
-        department: 'General',
-        subjects: ['Mathematics', 'Science']
-      };
-
-      // Use a fixed ID for the demo teacher
-      const demoTeacherId = 'demo-teacher-001';
-      
-      await this.initializeTeacherProfile(demoTeacherId, demoTeacher);
-      
-      console.log('✅ Demo teacher account created with ID:', demoTeacherId);
-      console.log('🔑 Use this email to test: teacher@demo.com');
-      
-      return demoTeacherId;
-    } catch (error) {
-      console.error('❌ Error creating demo teacher account:', error);
-      throw error;
-    }
-  }
-}
-
-export const teacherService = new TeacherService();
