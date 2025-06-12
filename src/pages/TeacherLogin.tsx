@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, Users, AlertCircle, Database } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, Users, AlertCircle, Database, RefreshCw } from 'lucide-react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../utils/firebase';
 import { teacherService } from '../services/teacherService';
@@ -108,12 +108,19 @@ const TeacherLogin: React.FC = () => {
         setError('Invalid email address.');
       } else if (error.code === 'auth/invalid-credential') {
         setError('Invalid credentials. Please check your email and password.');
+      } else if (error.message?.includes('visibility-check-was-unavailable')) {
+        setError('Connection issue with Firebase. Please check your internet connection and try again.');
       } else {
         setError(error.message || 'Failed to log in. Please try again.');
       }
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRetry = () => {
+    setError('');
+    window.location.reload();
   };
 
   return (
@@ -157,9 +164,23 @@ const TeacherLogin: React.FC = () => {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
             {error && (
-              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm flex items-start">
-                <AlertCircle className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
-                <span>{error}</span>
+              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <div className="flex items-start">
+                  <AlertCircle className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0 text-red-600 dark:text-red-400" />
+                  <div className="flex-1">
+                    <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                    {error.includes('Connection issue') || error.includes('visibility-check') ? (
+                      <button
+                        type="button"
+                        onClick={handleRetry}
+                        className="flex items-center text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 mt-2"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-1" />
+                        Retry Connection
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             )}
 

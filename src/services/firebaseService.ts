@@ -108,6 +108,66 @@ class FirebaseService {
     }
   }
 
+  // Get user profile by email (for login verification)
+  async getUserByEmail(email: string) {
+    try {
+      console.log('🔍 Looking up user by email:', email);
+      
+      const usersQuery = query(
+        collection(db, 'users'),
+        where('email', '==', email),
+        limit(1)
+      );
+      
+      const snapshot = await getDocs(usersQuery);
+      
+      if (!snapshot.empty) {
+        const userDoc = snapshot.docs[0];
+        const userData = userDoc.data();
+        console.log('✅ Found user:', userData.name);
+        return {
+          id: userDoc.id,
+          ...userData
+        };
+      } else {
+        console.log('❌ No user found with email:', email);
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Error looking up user by email:', error);
+      return null;
+    }
+  }
+
+  // List all users for debugging
+  async listAllUsers() {
+    try {
+      console.log('📋 Listing all users in database...');
+      
+      const usersQuery = query(
+        collection(db, 'users'),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      );
+      
+      const snapshot = await getDocs(usersQuery);
+      const users = snapshot.docs.map(doc => ({
+        id: doc.id,
+        email: doc.data().email,
+        name: doc.data().name,
+        studentId: doc.data().studentId,
+        isActive: doc.data().isActive,
+        createdAt: doc.data().createdAt?.toDate()
+      }));
+      
+      console.log('📋 Found users:', users);
+      return users;
+    } catch (error) {
+      console.error('❌ Error listing users:', error);
+      return [];
+    }
+  }
+
   // Auto-enroll student in classes based on their grade and section - ENHANCED
   async autoEnrollStudentInClasses(userId: string, grade: string, section: string) {
     try {

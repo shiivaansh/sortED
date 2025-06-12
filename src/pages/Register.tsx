@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, User, Eye, EyeOff, GraduationCap } from 'lucide-react';
+import { Mail, Lock, User, Eye, EyeOff, GraduationCap, AlertCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Register: React.FC = () => {
@@ -58,6 +58,11 @@ const Register: React.FC = () => {
     }
   };
 
+  const handleRetry = () => {
+    setError('');
+    window.location.reload();
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center px-4">
       <div className="max-w-md w-full space-y-8">
@@ -74,8 +79,23 @@ const Register: React.FC = () => {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
             {error && (
-              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
-                {error}
+              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <div className="flex items-start">
+                  <AlertCircle className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0 text-red-600 dark:text-red-400" />
+                  <div className="flex-1">
+                    <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                    {error.includes('Connection issue') || error.includes('visibility-check') ? (
+                      <button
+                        type="button"
+                        onClick={handleRetry}
+                        className="flex items-center text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 mt-2"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-1" />
+                        Retry Connection
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             )}
             

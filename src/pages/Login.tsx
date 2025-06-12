@@ -4,8 +4,8 @@ import { Mail, Lock, Eye, EyeOff, GraduationCap, Users, RefreshCw } from 'lucide
 import { useAuth } from '../contexts/AuthContext';
 
 const Login: React.FC = () => {
-  const [email, setEmail] = useState('student@demo.com');
-  const [password, setPassword] = useState('demo123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -41,6 +41,12 @@ const Login: React.FC = () => {
     window.location.reload();
   };
 
+  const fillDemoCredentials = () => {
+    setEmail('student@demo.com');
+    setPassword('demo123');
+    setError('');
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center px-4">
       <div className="max-w-md w-full space-y-8">
@@ -56,17 +62,21 @@ const Login: React.FC = () => {
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
-            {/* Demo Credentials Info */}
-            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                🔑 Demo Credentials
+            {/* Instructions for existing users */}
+            <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+              <h4 className="text-sm font-semibold text-green-900 dark:text-green-100 mb-2">
+                👤 Existing Student Login
               </h4>
-              <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                <p><strong>Email:</strong> student@demo.com</p>
-                <p><strong>Password:</strong> demo123</p>
-                <p className="text-blue-600 dark:text-blue-400">
-                  These credentials are pre-filled for easy testing.
-                </p>
+              <div className="text-xs text-green-700 dark:text-green-300 space-y-1">
+                <p>Enter your registered email and password below.</p>
+                <p>If you don't have an account, click "Sign up" to create one.</p>
+                <button
+                  type="button"
+                  onClick={fillDemoCredentials}
+                  className="text-green-600 dark:text-green-400 hover:underline"
+                >
+                  Or click here to use demo credentials for testing
+                </button>
               </div>
             </div>
 
@@ -102,7 +112,7 @@ const Login: React.FC = () => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    placeholder="Enter your email"
+                    placeholder="Enter your registered email"
                   />
                 </div>
               </div>

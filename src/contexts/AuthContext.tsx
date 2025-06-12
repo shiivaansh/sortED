@@ -43,6 +43,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Firebase authentication is not initialized. Please refresh the page and try again.');
       }
       
+      // Check if user already exists in Firestore
+      const existingUser = await firebaseService.getUserByEmail(email);
+      if (existingUser) {
+        throw new Error('This email is already registered. Please try logging in instead.');
+      }
+      
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       console.log('✅ Firebase Auth account created successfully');
       
@@ -101,8 +107,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Firebase authentication is not initialized. Please refresh the page and try again.');
       }
       
+      // First check if user exists in Firestore
+      const existingUser = await firebaseService.getUserByEmail(email);
+      if (!existingUser) {
+        console.log('⚠️ No user found in Firestore with this email, but will try auth anyway');
+      } else {
+        console.log('✅ User found in Firestore:', existingUser.name);
+      }
+      
+      // Try to sign in with Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      console.log('✅ Login successful');
+      console.log('✅ Login successful with Firebase Auth');
+      
+      // If user exists in Auth but not in Firestore, initialize their profile
+      if (userCredential.user && !existingUser) {
+        console.log('⚠️ User exists in Auth but not in Firestore, initializing profile...');
+        await firebaseService.initializeUserProfile(userCredential.user.uid, {
+          name: userCredential.user.displayName || 'Student',
+          email: userCredential.user.email || email,
+          studentId: `STU-${Date.now()}`
+        });
+      }
       
       return userCredential.user;
     } catch (error) {
