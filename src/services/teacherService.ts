@@ -148,6 +148,50 @@ class TeacherService {
     }
   }
 
+  // Create a new class
+  async createClass(classData: {
+    name: string;
+    subject: string;
+    grade: string;
+    section: string;
+    schedule: Array<{
+      day: string;
+      startTime: string;
+      endTime: string;
+    }>;
+    teacherId: string;
+  }) {
+    try {
+      const classRef = await addDoc(collection(db, 'classes'), {
+        ...classData,
+        students: [], // Empty array initially
+        createdAt: serverTimestamp(),
+        isActive: true,
+        lastUpdated: serverTimestamp()
+      });
+
+      // Update teacher's classes list
+      const teacherRef = doc(db, 'faculty', classData.teacherId);
+      const teacherDoc = await getDoc(teacherRef);
+      
+      if (teacherDoc.exists()) {
+        const teacherData = teacherDoc.data();
+        const currentClasses = teacherData.classes || [];
+        
+        await updateDoc(teacherRef, {
+          classes: [...currentClasses, classRef.id],
+          lastUpdated: serverTimestamp()
+        });
+      }
+
+      console.log('✅ Class created with ID:', classRef.id);
+      return classRef.id;
+    } catch (error) {
+      console.error('❌ Error creating class:', error);
+      throw error;
+    }
+  }
+
   // Get teacher's classes with real-time student count
   async getTeacherClasses(teacherId: string): Promise<ClassInfo[]> {
     try {
