@@ -901,3 +901,67 @@ class TeacherService {
           email: teacher.email,
           employeeId: teacher.employeeId,
           department: teacher.department,
+          subjects: teacher.subjects,
+          classes: classes.filter(c => c.teacherId === teacher.id).map(c => c.id),
+          qualifications: teacher.qualifications,
+          experience: teacher.experience,
+          joinedAt: serverTimestamp(),
+          isActive: true,
+          permissions: {
+            canCreateAssignments: true,
+            canGradeAssignments: true,
+            canMarkAttendance: true,
+            canViewReports: true,
+            canManageClasses: true
+          }
+        });
+      }
+
+      // Create classes
+      for (const classData of classes) {
+        const classRef = doc(db, 'classes', classData.id);
+        batch.set(classRef, {
+          ...classData,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      await batch.commit();
+      console.log('✅ Teacher and class data seeded successfully');
+      
+      return teachers;
+    } catch (error) {
+      console.error('❌ Error seeding teacher data:', error);
+      throw error;
+    }
+  }
+
+  // Create demo teacher account for testing
+  async createDemoTeacherAccount() {
+    try {
+      // This will create the faculty record for the demo teacher
+      const demoTeacher = {
+        name: 'Demo Teacher',
+        email: 'teacher@demo.com',
+        employeeId: 'DEMO001',
+        department: 'General',
+        subjects: ['Mathematics', 'Science']
+      };
+
+      // Use a fixed ID for the demo teacher
+      const demoTeacherId = 'demo-teacher-001';
+      
+      await this.initializeTeacherProfile(demoTeacherId, demoTeacher);
+      
+      console.log('✅ Demo teacher account created with ID:', demoTeacherId);
+      console.log('🔑 Use this email to test: teacher@demo.com');
+      
+      return demoTeacherId;
+    } catch (error) {
+      console.error('❌ Error creating demo teacher account:', error);
+      throw error;
+    }
+  }
+}
+
+export const teacherService = new TeacherService();
