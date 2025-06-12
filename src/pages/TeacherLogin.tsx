@@ -68,6 +68,7 @@ const TeacherLogin: React.FC = () => {
       
       // Sign in with Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log('🔐 Firebase Auth successful for:', userCredential.user.uid);
       
       // Check if user is a teacher in Firestore
       const teacherProfile = await teacherService.getTeacherProfile(userCredential.user.uid);
@@ -75,6 +76,7 @@ const TeacherLogin: React.FC = () => {
       if (!teacherProfile) {
         // If no teacher profile exists, try to create one for demo purposes
         if (email === 'teacher@demo.com') {
+          console.log('🏫 Creating demo teacher profile...');
           await teacherService.initializeTeacherProfile(userCredential.user.uid, {
             name: 'Demo Teacher',
             email: 'teacher@demo.com',
@@ -85,6 +87,7 @@ const TeacherLogin: React.FC = () => {
           
           // Update last login and proceed
           await teacherService.updateLastLogin(userCredential.user.uid);
+          console.log('✅ Demo teacher profile created and logged in');
           navigate('/teacher-dashboard');
           return;
         } else {
@@ -94,9 +97,11 @@ const TeacherLogin: React.FC = () => {
       
       // Update last login
       await teacherService.updateLastLogin(userCredential.user.uid);
+      console.log('✅ Teacher login successful');
       
       navigate('/teacher-dashboard');
     } catch (error: any) {
+      console.error('❌ Login error:', error);
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
         setError('Invalid email or password.');
       } else if (error.code === 'auth/invalid-email') {
